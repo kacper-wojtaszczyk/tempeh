@@ -1,4 +1,4 @@
-module Unit.Domain.TypesTest where
+module Unit.Domain.TypesTest (tests) where
 
 import Test.Tasty
 import Test.Tasty.HUnit

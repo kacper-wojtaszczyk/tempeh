@@ -39,4 +39,13 @@ test-suite tempeh-test
     , tasty
     , tasty-hunit
     , tasty-quickcheck
+    , scientific
+    , time
+    , stm
+    , text
+  other-modules:
+      Unit.Adapter.SimBrokerTest
+    , Unit.Domain.TypesTest
+    , Unit.Strategy.EmaCross.IndicatorsTest
+    , Unit.Strategy.EmaCross.StrategyTest
   default-language:    Haskell2010
