@@ -6,6 +6,7 @@ import Adapter.SimBroker
 import Port.Broker
 import Domain.Types
 import Data.Scientific (fromFloatDigits)
+import Data.Text (Text, pack)
 
 tests :: TestTree
 tests = testGroup "SimBroker"
@@ -16,7 +17,7 @@ tests = testGroup "SimBroker"
       acc <- bGetAccount br
       ords <- readOrders br
       oid @?= OrderId 1
-      aId acc @?= "SIM"
+      aId acc @?= pack "SIM"
       -- ensure the stored order list contains what we placed
       case ords of
         ((oid', o) : _) -> do

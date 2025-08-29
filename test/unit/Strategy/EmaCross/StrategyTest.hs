@@ -1,8 +1,9 @@
+{-# LANGUAGE RecordWildCards #-}
 module Unit.Strategy.EmaCross.StrategyTest (tests) where
 
 import Test.Tasty
 import Test.Tasty.HUnit
-import Data.Functor.Identity (runIdentity)
+import Data.Functor.Identity (Identity, runIdentity)
 import Port.Strategy
 import Strategy.EmaCross (emaCrossStrategy)
 import Domain.Types
