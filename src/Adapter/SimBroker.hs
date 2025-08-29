@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 module Adapter.SimBroker
   ( SimBroker
   , newSimBroker
@@ -11,6 +12,7 @@ import Port.Broker
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TVar
 import Data.Scientific (Scientific)
+import Data.Text (pack)
 import Data.Time (UTCTime)
 
 data SimBroker = SimBroker
@@ -39,7 +41,7 @@ readOrders SimBroker{..} = readTVarIO sbOrders
 instance Broker SimBroker IO where
   bGetAccount SimBroker{..} = do
     bal <- readTVarIO sbBalance
-    pure (Account "SIM" bal)
+    pure (Account (pack "SIM") bal)
 
   bMarketOrder SimBroker{..} o = atomically $ do
     ords <- readTVar sbOrders
