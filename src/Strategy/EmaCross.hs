@@ -2,6 +2,7 @@
 module Strategy.EmaCross
   ( emaCrossStrategy
   , ema
+  , EmaState(..)
   ) where
 
 import Port.Strategy
@@ -14,7 +15,7 @@ data EmaState = EmaState
   { prevFast :: Maybe Price
   , prevSlow :: Maybe Price
   , prevDiff :: Maybe Scientific
-  }
+  } deriving (Show)
 
 -- Public: construct an Identity-based (pure) EMA crossover strategy
 emaCrossStrategy :: Int -> Int -> Strategy EmaState Identity

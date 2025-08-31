@@ -15,7 +15,7 @@ newtype Qty = Qty { unQty :: Scientific }
 data Side = Buy | Sell
   deriving (Show, Eq, Generic)
 
-data Instrument = EURUSD
+newtype Instrument = Instrument { unInstrument :: Text }
   deriving (Show, Eq, Ord, Generic)
 
 data Candle = Candle

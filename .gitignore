@@ -30,3 +30,4 @@ cabal.project.local~
 
 # mac
 .DS_Store
+data/backtesting/*

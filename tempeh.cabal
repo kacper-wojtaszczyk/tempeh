@@ -9,16 +9,26 @@ library
       Domain.Types
     , Port.Broker
     , Port.Strategy
-    , Adapter.SimBroker
     , Strategy.EmaCross
-    , Runner.SimMain
-    , Util.FakeData
+    , Backtest.CsvTickLoader
+    , Backtest.CandleAggregator
+    , Runner.BacktestMain
+    , Backtest.Engine
+    , Backtest.Report
+    , Util.Config
+    , Util.Error
+    , Util.Logger
   build-depends:
       base >=4.14 && <5
     , scientific
     , time
     , stm
     , text
+    , cassava
+    , vector
+    , bytestring
+    , directory
+    , filepath
   default-language:    Haskell2010
 
 executable tempeh
@@ -27,6 +37,7 @@ executable tempeh
   build-depends:
       base
     , tempeh
+    , text
   default-language:    Haskell2010
 
 test-suite tempeh-test
@@ -44,8 +55,7 @@ test-suite tempeh-test
     , stm
     , text
   other-modules:
-      Unit.Adapter.SimBrokerTest
-    , Unit.Domain.TypesTest
+      Unit.Domain.TypesTest
     , Unit.Strategy.EmaCross.IndicatorsTest
     , Unit.Strategy.EmaCross.StrategyTest
   default-language:    Haskell2010
