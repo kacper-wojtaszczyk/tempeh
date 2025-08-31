@@ -1,10 +1,10 @@
 module Main where
 
 import System.Environment (getArgs)
-import Runner.BacktestMain (runBacktestApp, BacktestOptions(..))
-import Backtest.CsvTickLoader (DateRange(..), DataFilter(..))
+import Application.Main (runBacktestWithNewArchitecture)
+import Domain.Services.BacktestService (StrategyParameters(..))
 import Domain.Types (Instrument(..))
-import Util.Config (defaultAppConfig)
+import Port.DataProvider (DateRange(..))
 import Text.Read (readMaybe)
 import qualified Data.Text as T
 
@@ -15,12 +15,9 @@ main = do
   case args of
     ["backtest", instrumentStr, startYearStr, startMonthStr, endYearStr, endMonthStr] -> do
       case (parseInstrument instrumentStr, parseTimeRange startYearStr startMonthStr endYearStr endMonthStr) of
-        (Just instrument, Just dateRange) -> runBacktestApp BacktestOptions
-          { boInstrument = instrument
-          , boDataFilter = DateRangeFilter dateRange
-          , boDescription = "Backtest for " <> show instrument <> " from " <> show dateRange
-          , boConfig = Nothing
-          }
+        (Just instrument, Just dateRange) -> do
+          let strategyParams = EmaCrossParams 5 20 0.0001  -- Default EMA parameters
+          runBacktestWithNewArchitecture instrument dateRange strategyParams
         (Nothing, _) -> putStrLn $ "Invalid instrument format: " ++ instrumentStr ++ ". Use alphanumeric characters only."
         (_, Nothing) -> putStrLn "Invalid date format. Use: backtest <instrument> <start_year> <start_month> <end_year> <end_month>"
     [] -> printUsage
@@ -30,6 +27,8 @@ main = do
 
 printUsage :: IO ()
 printUsage = do
+  putStrLn "TEMPEH Trading Bot - Ports & Adapters Architecture"
+  putStrLn ""
   putStrLn "Usage:"
   putStrLn "  backtest <instrument> <start_year> <start_month> <end_year> <end_month>"
   putStrLn ""
@@ -51,7 +50,6 @@ parseInstrument instrStr =
     then Nothing
     else Just (Instrument (T.pack instrStr))
   where
-    -- Allow alphanumeric characters and common currency separators
     isValidInstrumentChar c = c `elem` (['A'..'Z'] ++ ['a'..'z'] ++ ['0'..'9'] ++ "_-")
 
 parseTimeRange :: String -> String -> String -> String -> Maybe DateRange
@@ -60,7 +58,6 @@ parseTimeRange startYearStr startMonthStr endYearStr endMonthStr = do
   startMonth <- readMaybe startMonthStr
   endYear <- readMaybe endYearStr
   endMonth <- readMaybe endMonthStr
-  -- Validate month ranges
   if startMonth >= 1 && startMonth <= 12 && endMonth >= 1 && endMonth <= 12
     then Just $ DateRange startYear startMonth endYear endMonth
     else Nothing

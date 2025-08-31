@@ -1,12 +1,14 @@
 {-# LANGUAGE RecordWildCards #-}
 module Strategy.EmaCross
   ( emaCrossStrategy
+  , emaCrossStrategyWithConfig
   , ema
   , EmaState(..)
   ) where
 
 import Port.Strategy
 import Domain.Types
+import Strategy.Config (StrategyParameters(..), StrategyConfig(..))
 import Data.Functor.Identity
 import Data.Scientific (Scientific, fromFloatDigits)
 
@@ -17,24 +19,35 @@ data EmaState = EmaState
   , prevDiff :: Maybe Scientific
   } deriving (Show)
 
--- Public: construct an Identity-based (pure) EMA crossover strategy
+-- Legacy function for backward compatibility
 emaCrossStrategy :: Int -> Int -> Strategy EmaState Identity
-emaCrossStrategy fast slow = Strategy
+emaCrossStrategy fast slow = emaCrossStrategyWithConfig defaultConfig
+  where
+    defaultConfig = EmaCrossParams fast slow 0.0001
+
+-- Enhanced strategy constructor with improved exit logic
+emaCrossStrategyWithConfig :: StrategyParameters -> Strategy EmaState Identity
+emaCrossStrategyWithConfig (EmaCrossParams fastPeriod slowPeriod threshold) = Strategy
   { initState = EmaState Nothing Nothing Nothing
   , step = \st candle ->
       let close = cClose candle
-          newFast = computeEma fast (prevFast st) close
-          newSlow = computeEma slow (prevSlow st) close
+          newFast = computeEma fastPeriod (prevFast st) close
+          newSlow = computeEma slowPeriod (prevSlow st) close
           diff = case (newFast, newSlow) of
             (Just (Price f), Just (Price s)) -> Just (f - s)
             _ -> Nothing
           sig = case (prevDiff st, diff) of
-            (Just d1, Just d2) | d1 <= 0 && d2 > 0 -> Enter Buy
-            (Just d1, Just d2) | d1 >= 0 && d2 < 0 -> Enter Sell
+            -- Entry signals: Strong EMA crossover
+            (Just d1, Just d2) | d1 <= 0 && d2 > threshold -> Enter Buy
+            (Just d1, Just d2) | d1 >= 0 && d2 < (-threshold) -> Enter Sell
+            -- Exit signals: Reverse crossover OR weakening trend
+            (Just d1, Just d2) | d1 > threshold && d2 <= 0 -> Exit  -- Fast crosses back below slow
+            (Just d1, Just d2) | d1 < (-threshold) && d2 >= 0 -> Exit  -- Fast crosses back above slow
             _ -> Hold
           newSt = EmaState newFast newSlow diff
       in Identity (newSt, sig)
   }
+emaCrossStrategyWithConfig _ = error "Invalid strategy parameters for EMA Cross"
 
 -- helper: compute next EMA value given previous EMA (or Nothing) and new price
 computeEma :: Int -> Maybe Price -> Price -> Maybe Price

@@ -6,18 +6,44 @@ build-type:          Simple
 library
   hs-source-dirs:      src
   exposed-modules:
+    -- Domain Layer (Pure Business Logic)
       Domain.Types
-    , Port.Broker
+    , Domain.Services.BacktestService
+
+    -- Ports Layer (Interfaces)
     , Port.Strategy
+    , Port.DataProvider
+    , Port.RiskManager
+    , Port.ReportGenerator
+
+    -- Application Layer (Orchestration)
+    , Application.BacktestOrchestrator
+    , Application.Main
+
+    -- Adapters Layer (Infrastructure)
+    , Adapter.CsvDataProvider
+    , Adapter.BacktestEngine
+    , Adapter.StrategyFactory
+
+    -- Strategy Implementations
     , Strategy.EmaCross
-    , Backtest.CsvTickLoader
+    , Strategy.Config
+
+    -- Legacy modules (to be refactored)
     , Backtest.CandleAggregator
-    , Runner.BacktestMain
+    , Backtest.CsvTickLoader
     , Backtest.Engine
     , Backtest.Report
+    , Runner.BacktestMain
+
+    -- Utilities
     , Util.Config
     , Util.Error
     , Util.Logger
+
+    -- Debug tools
+    , Debug.StrategyAnalyzer
+
   build-depends:
       base >=4.14 && <5
     , scientific
@@ -29,6 +55,9 @@ library
     , bytestring
     , directory
     , filepath
+    , transformers
+    , mtl
+    , aeson
   default-language:    Haskell2010
 
 executable tempeh

@@ -8,8 +8,7 @@ module Backtest.CsvTickLoader
 
 import Domain.Types
 import Util.Config (AppConfig(..), LogConfig(..))
-import Util.Error (AppError(..), Result, fromMaybe)
-import Util.Logger (Logger, logWithLevel)
+import Util.Error (AppError(..), Result)
 import Data.Time (UTCTime, parseTimeM, defaultTimeLocale)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -22,6 +21,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Exception (catch, IOException)
 import Data.Maybe (mapMaybe)
 import Data.Scientific (fromFloatDigits)
+import System.IO (hFlush, stdout)
 
 -- Type aliases for clarity
 type TickLoadResult = Result [Tick]
@@ -35,7 +35,7 @@ data DateRange = DateRange
   , endMonth :: Int
   } deriving (Show, Eq)
 
--- Data filtering options - more extensible
+-- Data filtering options
 data DataFilter
   = AllData
   | DateRangeFilter DateRange
@@ -43,76 +43,120 @@ data DataFilter
   | CombinedFilter DataFilter DataFilter
   deriving (Show, Eq)
 
--- Main loading function with proper error handling and configuration
-loadTicksWithConfig :: MonadIO m => AppConfig -> Logger -> Instrument -> DataFilter -> m TickLoadResult
-loadTicksWithConfig config logger instrument filter = liftIO $ do
-  logWithLevel logger (acLogging config) "Info" $ "Loading ticks for " <> (T.pack . show) instrument
+-- Main loading function with extensive debugging
+loadTicksWithConfig :: MonadIO m => AppConfig -> logger -> Instrument -> DataFilter -> m TickLoadResult
+loadTicksWithConfig config _ instrument dataFilter = liftIO $ do
+  putStrLn $ "=== CSV TICK LOADER DEBUG ==="
+  putStrLn $ "Data directory: " <> acDataDirectory config
+  putStrLn $ "Target instrument: " <> show instrument
+  putStrLn $ "Data filter: " <> show dataFilter
+  hFlush stdout
 
   -- Validate directory exists
   dirExists <- doesDirectoryExist (acDataDirectory config)
+  putStrLn $ "Directory exists: " <> show dirExists
+  hFlush stdout
+
   if not dirExists
-    then pure $ Left $ FileError $ "Data directory does not exist: " <> T.pack (acDataDirectory config)
+    then do
+      putStrLn "ERROR: Data directory does not exist!"
+      pure $ Left $ FileError $ "Data directory does not exist: " <> T.pack (acDataDirectory config)
     else do
-      -- Get filtered files
-      filesResult <- getFilteredFiles (acDataDirectory config) instrument filter
+      -- Get filtered files with debugging
+      filesResult <- getFilteredFiles (acDataDirectory config) instrument dataFilter
       case filesResult of
-        Left err -> pure $ Left err
+        Left err -> do
+          putStrLn $ "ERROR getting files: " <> show err
+          pure $ Left err
         Right files -> do
-          logWithLevel logger (acLogging config) "Debug" $ "Found " <> T.pack (show (length files)) <> " files to process"
-          loadTicksFromFiles logger (acLogging config) (acDataDirectory config) files
+          putStrLn $ "Found " <> show (length files) <> " files to process: " <> show files
+          hFlush stdout
+          loadTicksFromFiles (acDataDirectory config) files
+
+-- Get filtered files with extensive debugging
+getFilteredFiles :: FilePath -> Instrument -> DataFilter -> IO (Result [String])
+getFilteredFiles dataDir instrument dataFilter = do
+  putStrLn $ "Listing files in directory: " <> dataDir
+  hFlush stdout
+
+  filesResult <- tryIO $ listDirectory dataDir
+  case filesResult of
+    Left err -> do
+      putStrLn $ "Failed to list directory: " <> show err
+      pure $ Left $ FileError $ T.pack $ show err
+    Right allFiles -> do
+      putStrLn $ "All files in directory: " <> show allFiles
+      let csvFiles = filter (T.isPrefixOf "DAT_ASCII_" . T.pack) allFiles
+      putStrLn $ "CSV files found: " <> show csvFiles
+
+      let fileFilter = createFileFilter instrument dataFilter
+          filteredFiles = filter fileFilter csvFiles
+      putStrLn $ "Files after filtering: " <> show filteredFiles
+      hFlush stdout
+
+      pure $ Right filteredFiles
+  where
+    tryIO :: IO a -> IO (Either IOError a)
+    tryIO action = (Right <$> action) `catch` (pure . Left)
 
 -- Pure function to get file filter based on DataFilter
 createFileFilter :: Instrument -> DataFilter -> FileFilter
 createFileFilter instrument = go
   where
     go AllData = isFileForInstrument instrument
-    go (DateRangeFilter range) = \f -> isFileForInstrument instrument f && isFileInRange range f
+    go (DateRangeFilter range) = \f ->
+      let instrMatch = isFileForInstrument instrument f
+          rangeMatch = isFileInRange range f
+      in instrMatch && rangeMatch
     go (InstrumentFilter instr) = isFileForInstrument instr
     go (CombinedFilter f1 f2) = \f -> go f1 f && go f2 f
 
--- Get filtered files with error handling
-getFilteredFiles :: FilePath -> Instrument -> DataFilter -> IO (Result [String])
-getFilteredFiles dataDir instrument dataFilter = do
-  filesResult <- tryIO $ listDirectory dataDir
-  case filesResult of
-    Left err -> pure $ Left $ FileError $ T.pack $ show err
-    Right allFiles ->
-      let csvFiles = filter (T.isPrefixOf "DAT_ASCII_" . T.pack) allFiles
-          fileFilter = createFileFilter instrument dataFilter
-          filteredFiles = filter fileFilter csvFiles
-      in pure $ Right filteredFiles
-  where
-    tryIO :: IO a -> IO (Either IOError a)
-    tryIO action = (Right <$> action) `catch` (pure . Left)
+-- Load ticks from files with debugging
+loadTicksFromFiles :: FilePath -> [String] -> IO TickLoadResult
+loadTicksFromFiles dataDir files = do
+  putStrLn $ "Loading ticks from " <> show (length files) <> " files"
+  hFlush stdout
 
--- Load ticks from files with better error handling
-loadTicksFromFiles :: Logger -> LogConfig -> FilePath -> [String] -> IO TickLoadResult
-loadTicksFromFiles logger logConfig dataDir files = do
   results <- forM files $ \file -> do
-    logWithLevel logger logConfig "Debug" $ "Processing file: " <> T.pack file
-    loadTicksFromFile logger logConfig (dataDir </> file)
+    putStrLn $ "Processing file: " <> file
+    hFlush stdout
+    loadTicksFromFile (dataDir </> file)
 
   -- Combine results, collecting errors
   let (errors, tickLists) = partitionEithers results
   if null errors
     then do
       let allTicks = concat tickLists
-      logWithLevel logger logConfig "Info" $ "Successfully loaded " <> T.pack (show (length allTicks)) <> " ticks"
+      putStrLn $ "Successfully loaded " <> show (length allTicks) <> " total ticks"
+      hFlush stdout
       pure $ Right allTicks
-    else pure $ Left $ FileError $ "Multiple file errors: " <> T.intercalate "; " (map errorMessage errors)
+    else do
+      putStrLn $ "Errors encountered: " <> show errors
+      pure $ Left $ FileError $ "Multiple file errors: " <> T.intercalate "; " (map errorMessage errors)
 
--- Load ticks from a single file - now pure parsing with IO only for file reading
-loadTicksFromFile :: Logger -> LogConfig -> FilePath -> IO TickLoadResult
-loadTicksFromFile logger logConfig filePath = do
+-- Load ticks from a single file with debugging
+loadTicksFromFile :: FilePath -> IO TickLoadResult
+loadTicksFromFile filePath = do
+  putStrLn $ "Reading file: " <> filePath
+  hFlush stdout
+
   contentResult <- tryReadFile filePath
   case contentResult of
-    Left err -> pure $ Left $ FileError $ T.pack $ show err
-    Right contents ->
+    Left err -> do
+      putStrLn $ "Failed to read file: " <> show err
+      pure $ Left $ FileError $ T.pack $ show err
+    Right contents -> do
+      putStrLn $ "File read successfully, content length: " <> show (T.length contents)
+
       case extractInstrumentFromFilename (takeFileName filePath) of
-        Nothing -> pure $ Left $ ParseError $ "Could not extract instrument from filename: " <> T.pack filePath
+        Nothing -> do
+          putStrLn $ "Could not extract instrument from filename: " <> filePath
+          pure $ Left $ ParseError $ "Could not extract instrument from filename: " <> T.pack filePath
         Just instrument -> do
+          putStrLn $ "Extracted instrument: " <> show instrument
           let ticks = parseTicksFromText instrument contents
-          logWithLevel logger logConfig "Debug" $ "Parsed " <> T.pack (show (length ticks)) <> " ticks from " <> T.pack filePath
+          putStrLn $ "Parsed " <> show (length ticks) <> " ticks from " <> filePath
+          hFlush stdout
           pure $ Right ticks
   where
     tryReadFile :: FilePath -> IO (Either IOError Text)
@@ -123,7 +167,10 @@ loadTicksFromFile logger logConfig filePath = do
 -- Pure parsing function
 parseTicksFromText :: Instrument -> Text -> [Tick]
 parseTicksFromText instrument content =
-  mapMaybe (parseTickLine instrument) (T.lines content)
+  let lines = T.lines content
+      nonEmptyLines = filter (not . T.null) lines
+      ticks = mapMaybe (parseTickLine instrument) nonEmptyLines
+  in ticks
 
 -- Improved parsing with better error handling
 parseTickLine :: Instrument -> Text -> Maybe Tick

@@ -73,14 +73,14 @@ runBacktest config strategy candles =
        , brTrades = reverse (bsTrades finalState)
        }
 
--- Process a single candle through the strategy and update state
+-- Process a single candle through the strategy and update state with debugging
 processCandle :: BacktestConfig -> Strategy EmaState Identity -> BacktestState -> Candle -> BacktestState
 processCandle config strategy state candle =
   let Identity (newStrategyState, signal) = step strategy (bsStrategyState state) candle
       newState = processSignal config signal candle $ state { bsStrategyState = newStrategyState }
   in newState
 
--- Process trading signals
+-- Process trading signals with proper pure function syntax
 processSignal :: BacktestConfig -> Signal -> Candle -> BacktestState -> BacktestState
 processSignal _ Hold _ state = state
 processSignal config Exit candle state = closePosition config candle state
