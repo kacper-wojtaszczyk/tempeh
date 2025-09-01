@@ -10,6 +10,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Scientific (Scientific, fromFloatDigits)
 import Data.Time (UTCTime)
 import qualified Data.Text as T
+import Data.List (sortOn, scanl1)
 
 -- Adapter implementation of BacktestService using State monad
 data BacktestEngineState = BacktestEngineState
@@ -71,10 +72,25 @@ instance BacktestService BacktestEngineM where
                        then fromFloatDigits $ realToFrac (sum winPnls) / realToFrac (abs (sum lossPnls))
                        else 999999
 
+        -- Realized equity curve based on closed trades
+        sortedPairs = sortOn (trTime . snd) tradePairs
+        equityPoints =
+          let step (eq, acc) (o,c) =
+                let pnl = calculateTradeResultPnL (o,c)
+                    newEq = eq + pnl
+                in (newEq, acc ++ [(trTime c, newEq)])
+          in snd (foldl step (initialBalance, []) sortedPairs)
+        -- Compute max drawdown from realized equity curve
+        maxDrawdown =
+          let eqVals = map snd equityPoints
+              runMax = scanl1 max eqVals
+              drawdowns = zipWith (-) runMax eqVals
+          in if null drawdowns then 0 else maximum drawdowns
+
     pure $ Right $ PerformanceMetrics
       { pmWinRate = winRate
       , pmProfitFactor = profitFactor
-      , pmMaxDrawdown = 0  -- Simplified for now
+      , pmMaxDrawdown = maxDrawdown
       , pmAverageWin = avgWin
       , pmAverageLoss = avgLoss
       , pmSharpeRatio = Nothing
@@ -87,8 +103,14 @@ instance BacktestService BacktestEngineM where
 
 -- Core processing logic
 processCandlesWithStrategy :: BacktestParameters -> StrategyInstance -> [Candle] -> BacktestEngineM ()
-processCandlesWithStrategy params strategyInstance candles =
+processCandlesWithStrategy params strategyInstance candles = do
   mapM_ (processCandleWithStrategy params strategyInstance) candles
+  -- Force-close any open position at end of backtest using last candle
+  state <- get
+  case (candles, besPosition state) of
+    ([], _) -> pure ()
+    (_, Nothing) -> pure ()
+    (_, Just _) -> closeCurrentPosition (last candles)
 
 processCandleWithStrategy :: BacktestParameters -> StrategyInstance -> Candle -> BacktestEngineM ()
 processCandleWithStrategy params strategyInstance candle = do
@@ -101,8 +123,11 @@ processCandleWithStrategy params strategyInstance candle = do
   case signal of
     Enter side -> openPosition params side candle
     Exit -> closeCurrentPosition candle
-    Hold -> recordEquityPoint candle
+    Hold -> pure ()  -- No position change
     _ -> pure ()  -- Handle other signal types
+
+  -- Always record equity after processing the candle
+  recordEquityPoint candle
 
 -- Position management
 openPosition :: BacktestParameters -> Side -> Candle -> BacktestEngineM ()
@@ -158,7 +183,12 @@ closeCurrentPosition candle = do
 recordEquityPoint :: Candle -> BacktestEngineM ()
 recordEquityPoint candle = do
   state <- get
-  let newPoint = (cTime candle, besBalance state)
+  let markToMarket = case besPosition state of
+        Nothing -> besBalance state
+        Just pos ->
+          let upnl = calculatePositionPnL pos (cClose candle)
+          in besBalance state + upnl
+      newPoint = (cTime candle, markToMarket)
   put state { besEquityCurve = newPoint : besEquityCurve state }
 
 -- Helper functions

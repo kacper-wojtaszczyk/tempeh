@@ -14,6 +14,9 @@ import Data.List (sortOn, groupBy, maximumBy, minimumBy)
 import Data.Function (on)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
+import qualified Data.Aeson as JSON
+import qualified Data.ByteString.Lazy as LBS
+import qualified Data.Text.Encoding as TE
 
 -- Console-based report generator adapter
 data ConsoleReportGenerator = ConsoleReportGenerator
@@ -23,12 +26,12 @@ newtype ConsoleReportGeneratorM a = ConsoleReportGeneratorM
   deriving (Functor, Applicative, Monad, MonadIO, MonadReader ConsoleReportGenerator)
 
 instance ReportGenerator ConsoleReportGeneratorM where
-  generateReport result metrics configPlaceholder = do
+  generateReport result metrics rptCtx = do
     currentTime <- liftIO getCurrentTime
 
-    let summary = generateSimplifiedReportSummary result
+    let summary = generateReportSummary rptCtx result
         tradeAnalysis = analyzeTradeResults (brTrades result)
-        equityCurve = calculateEquityCurve result
+        equityCurve = calculateEquityCurve (rcInitialBalance rptCtx) result
 
         reportOutput = ReportOutput
           { roSummary = summary
@@ -73,19 +76,30 @@ instance ReportGenerator ConsoleReportGeneratorM where
       PDF -> pure $ Left $ UnsupportedOperationError "PDF export not implemented yet"
 
 -- Implementation functions
-generateSimplifiedReportSummary :: BacktestResult -> ReportSummary
-generateSimplifiedReportSummary result =
-  let totalReturn = (brFinalBalance result - 10000.0) / 10000.0 * 100
-      -- Simplified annualized return calculation
-      annualizedReturn = totalReturn * 4  -- Assuming quarterly data
+generateReportSummary :: ReportContext -> BacktestResult -> ReportSummary
+generateReportSummary ctx result =
+  let initial = rcInitialBalance ctx
+      finalB = brFinalBalance result
+      totalReturn = if initial > 0 then (finalB - initial) / initial * 100 else 0
+      months = monthsBetween (rcDateRange ctx)
+      annualizedReturn = if months > 0 then totalReturn * fromIntegral (12 :: Int) / fromIntegral months else totalReturn
+      drTxt = formatDateRange (rcDateRange ctx)
+      stratTxt = T.pack (show (rcStrategy ctx))
   in ReportSummary
-    { rsInstrument = Instrument "UNKNOWN"
-    , rsDateRange = "2025-01 to 2025-03"
-    , rsStrategy = "EmaCrossParams 5 20 0.0001"
+    { rsInstrument = rcInstrument ctx
+    , rsDateRange = drTxt
+    , rsStrategy = stratTxt
     , rsTotalReturn = totalReturn
     , rsAnnualizedReturn = annualizedReturn
-    , rsFinalBalance = brFinalBalance result
+    , rsFinalBalance = finalB
     }
+
+monthsBetween :: DateRange -> Int
+monthsBetween dr =
+  let start = drStartYear dr * 12 + (drStartMonth dr - 1)
+      end   = drEndYear dr * 12 + (drEndMonth dr - 1)
+      diff  = end - start + 1
+  in max 0 diff
 
 analyzeTradeResults :: [TradeRecord] -> TradeAnalysis
 analyzeTradeResults trades =
@@ -111,12 +125,16 @@ analyzeTradeResults trades =
     , taAverageTradeTime = calculateAverageTradeTime tradePairs
     }
 
-calculateEquityCurve :: BacktestResult -> [(UTCTime, Scientific)]
-calculateEquityCurve result =
-  -- Simplified equity curve calculation
-  let trades = brTrades result
-      sortedTrades = sortOn trTime trades
-  in map (\trade -> (trTime trade, unPrice (trPrice trade))) sortedTrades
+calculateEquityCurve :: Scientific -> BacktestResult -> [(UTCTime, Scientific)]
+calculateEquityCurve initial result =
+  let pairs = pairTrades (brTrades result)
+      sortedPairs = sortOn (trTime . snd) pairs
+      step (eq, acc) (openT, closeT) =
+        let pnl = calculateTradePnL (openT, closeT)
+            newEq = eq + pnl
+        in (newEq, acc ++ [(trTime closeT, newEq)])
+      (_, equityPoints) = foldl step (initial, []) sortedPairs
+  in equityPoints
 
 calculateDrawdownCurve :: [(UTCTime, Scientific)] -> [(UTCTime, Scientific)]
 calculateDrawdownCurve equityCurve =
@@ -207,7 +225,7 @@ printReportSummary summary = do
 printTradeAnalysis :: TradeAnalysis -> IO ()
 printTradeAnalysis analysis = do
   putStrLn "=== TRADE ANALYSIS ==="
-  putStrLn $ "Total Trades: " <> show (taTotalTrades analysis)
+  putStrLn $ "Trade Pairs: " <> show (taTotalTrades analysis)
   putStrLn $ "Winning Trades: " <> show (taWinningTrades analysis)
   putStrLn $ "Losing Trades: " <> show (taLosingTrades analysis)
   putStrLn $ "Largest Win: $" <> show (taLargestWin analysis)
@@ -229,7 +247,7 @@ formatReportAsCSV :: ReportOutput -> T.Text
 formatReportAsCSV _ = "CSV format not implemented yet"
 
 formatReportAsJSON :: ReportOutput -> T.Text
-formatReportAsJSON _ = "JSON format not implemented yet"
+formatReportAsJSON ro = TE.decodeUtf8 . LBS.toStrict $ JSON.encode ro
 
 formatReportAsHTML :: ReportOutput -> T.Text
 formatReportAsHTML _ = "HTML format not implemented yet"

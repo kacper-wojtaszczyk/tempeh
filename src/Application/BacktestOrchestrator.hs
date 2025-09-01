@@ -14,6 +14,7 @@ import Util.Logger (LogLevel(..), logInfo, logError)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Scientific (Scientific, fromFloatDigits)
 import qualified Data.Text as T
+import Adapter.StrategyFactory (createStrategyFromConfig)
 
 -- Orchestrator configuration
 data BacktestConfig = BacktestConfig
@@ -65,7 +66,8 @@ orchestrateBacktest config = do
 
               -- Step 4: Generate comprehensive report
               liftIO $ logInfo "Generating performance report"
-              reportResult <- generatePerformanceReport result config
+              let rptCtx = ReportContext (bcInstrument config) (bcDateRange config) (bcStrategyParams config) (bcInitialBalance config)
+              reportResult <- generatePerformanceReport result config rptCtx
               case reportResult of
                 Left err -> do
                   liftIO $ logError $ "Report generation failed: " <> T.pack (show err)
@@ -127,8 +129,8 @@ executeBacktestWithRiskManagement config candles = do
         , bpSlippage = fromFloatDigits 0.0001
         }
 
-  -- Create strategy instance (this would come from a factory in real implementation)
-  let strategyInstance = createStrategyInstance (bcStrategyParams config)
+  -- Create strategy instance from config
+  let strategyInstance = createStrategyFromConfig (bcStrategyParams config)
 
   -- Execute backtest
   backtestResult <- executeBacktest params strategyInstance candles
@@ -145,27 +147,19 @@ executeBacktestWithRiskManagement config candles = do
 generatePerformanceReport :: (MonadIO m, BacktestService m, ReportGenerator m)
                           => BacktestResult
                           -> BacktestConfig
+                          -> ReportContext
                           -> m (Result BacktestResult)
-generatePerformanceReport result config = do
+generatePerformanceReport result config rptCtx = do
   -- Calculate performance metrics
   metricsResult <- calculatePerformanceMetrics result (bcInitialBalance config)
   case metricsResult of
     Left err -> pure $ Left err
     Right metrics -> do
-      -- Generate report (pass () as placeholder for BacktestConfigType)
-      reportResult <- generateReport result metrics ()
+      -- Generate report with context
+      reportResult <- generateReport result metrics rptCtx
       case reportResult of
         Left err -> pure $ Left err
         Right _ -> pure $ Right result
-
--- Helper functions
-createStrategyInstance :: StrategyParameters -> StrategyInstance
-createStrategyInstance params = StrategyInstance
-  { siName = "Strategy Instance"
-  , siDescription = T.pack $ show params
-  , siParameters = params
-  , siSignalGenerator = \_ state -> (Hold, state)  -- Placeholder - would be implemented properly
-  }
 
 defaultBacktestConfig :: BacktestConfig
 defaultBacktestConfig = BacktestConfig

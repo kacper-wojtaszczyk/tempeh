@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE DeriveGeneric #-}
 module Strategy.EmaCross
   ( emaCrossStrategy
   , emaCrossStrategyWithConfig
@@ -7,6 +8,8 @@ module Strategy.EmaCross
   , computeEma
   ) where
 
+import GHC.Generics (Generic)
+import qualified Data.Aeson as JSON
 import Domain.Strategy
 import Domain.Types
 import Strategy.Config (StrategyParameters(..), StrategyConfig(..))
@@ -18,7 +21,13 @@ data EmaState = EmaState
   { prevFast :: Maybe Price
   , prevSlow :: Maybe Price
   , prevDiff :: Maybe Scientific
-  } deriving (Show, Read, Eq)
+  } deriving (Show, Read, Eq, Generic)
+
+instance JSON.ToJSON EmaState where
+  toJSON = JSON.genericToJSON JSON.defaultOptions
+
+instance JSON.FromJSON EmaState where
+  parseJSON = JSON.genericParseJSON JSON.defaultOptions
 
 -- Legacy function for backward compatibility
 emaCrossStrategy :: Int -> Int -> Strategy EmaState Identity

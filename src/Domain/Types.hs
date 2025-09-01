@@ -6,10 +6,17 @@ import GHC.Generics (Generic)
 import Data.Text (Text)
 import Data.Time (UTCTime)
 import Data.Scientific (Scientific)
+import qualified Data.Aeson as JSON
 
 -- Core domain entities (kept pure and focused)
 newtype Price = Price { unPrice :: Scientific }
   deriving (Show, Eq, Ord, Read, Generic)
+
+instance JSON.ToJSON Price where
+  toJSON (Price s) = JSON.toJSON s
+
+instance JSON.FromJSON Price where
+  parseJSON v = Price <$> JSON.parseJSON v
 
 newtype Qty = Qty { unQty :: Scientific }
   deriving (Show, Eq, Ord, Generic)
@@ -27,6 +34,12 @@ data Candle = Candle
   , cLow   :: Price
   , cClose :: Price
   } deriving (Show, Eq, Generic)
+
+instance JSON.ToJSON Candle where
+  toJSON = JSON.genericToJSON JSON.defaultOptions
+
+instance JSON.FromJSON Candle where
+  parseJSON = JSON.genericParseJSON JSON.defaultOptions
 
 -- Enhanced Signal with more semantic meaning
 data Signal
@@ -93,7 +106,7 @@ data CurrencyPair = CurrencyPair
   , cpMinSize :: Scientific
   } deriving (Show, Eq, Generic)
 
--- Risk management types (moved from BacktestOrchestrator to avoid circular imports)
+-- Risk management types
 data RiskLimits = RiskLimits
   { rlMaxDrawdown :: Scientific
   , rlMaxPositionSize :: Scientific

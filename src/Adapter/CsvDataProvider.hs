@@ -8,8 +8,8 @@ import Util.Error (Result, AppError(..))
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.Text.Read as TR
-import System.Directory (listDirectory, doesDirectoryExist)
-import System.FilePath ((</>))
+import System.Directory (listDirectory, doesDirectoryExist, createDirectoryIfMissing, doesFileExist)
+import System.FilePath ((</>), takeDirectory)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader
 import Data.Maybe (mapMaybe)
@@ -17,6 +17,8 @@ import Data.Scientific (fromFloatDigits, Scientific)
 import Data.Time (UTCTime, parseTimeM, defaultTimeLocale, addUTCTime)
 import Data.List (sortOn)
 import Control.Exception (catch, IOException)
+import qualified Data.Aeson as JSON
+import qualified Data.ByteString.Lazy as LBS
 
 -- CSV adapter implementation of DataProvider port
 newtype CsvDataProvider = CsvDataProvider
@@ -34,13 +36,33 @@ instance MonadIO m => DataProvider (CsvDataProviderM m) where
     liftIO $ loadTicksFromCsv dataDir instrument dateRange
 
   loadCandles instrument dateRange period = do
-    ticksResult <- loadTicks instrument dateRange
-    case ticksResult of
-      Left err -> pure $ Left err
-      Right ticks -> pure $ Right $ aggregateTicksToCandles period ticks
+    dataDir <- asks csvDataDirectory
+    let cachePath = candleCachePath dataDir instrument dateRange period
+    cacheExists <- liftIO $ doesFileExist cachePath
+    if cacheExists
+      then do
+        cached <- liftIO $ tryIO $ LBS.readFile cachePath
+        case cached of
+          Left _ -> computeAndCache dataDir cachePath instrument dateRange period
+          Right lbs -> case JSON.decode lbs :: Maybe [Candle] of
+            Just cs -> pure $ Right cs
+            Nothing -> computeAndCache dataDir cachePath instrument dateRange period
+      else computeAndCache dataDir cachePath instrument dateRange period
 
   validateDataQuality ticks =
     pure $ Right $ analyzeDataQuality ticks
+
+-- compute from ticks and write cache
+computeAndCache :: (Monad m, MonadIO m) => FilePath -> FilePath -> Instrument -> DateRange -> CandlePeriod -> CsvDataProviderM m (Result [Candle])
+computeAndCache dataDir cachePath instrument dateRange period = do
+  ticksResult <- loadTicks instrument dateRange
+  case ticksResult of
+    Left err -> return $ Left err
+    Right ticks -> do
+      let candles = aggregateTicksToCandles period ticks
+      _ <- liftIO $ tryIO $ createDirectoryIfMissing True (takeDirectory cachePath)
+      _ <- liftIO $ tryIO $ LBS.writeFile cachePath (JSON.encode candles)
+      return $ Right candles
 
 -- Implementation functions
 loadTicksFromCsv :: FilePath -> Instrument -> DateRange -> IO (Result [Tick])
@@ -229,3 +251,22 @@ partitionEithers = foldr (either left right) ([], [])
   where
     left  a ~(l, r) = (a:l, r)
     right b ~(l, r) = (l, b:r)
+
+-- Helper functions for candle caching
+candleCachePath :: FilePath -> Instrument -> DateRange -> CandlePeriod -> FilePath
+candleCachePath dataDir (Instrument instr) dr period =
+  let cacheDir = dataDir </> ".cache" </> "candles"
+      tag = T.unpack instr <> "_" <> show (drStartYear dr) <> pad (drStartMonth dr)
+            <> "_" <> show (drEndYear dr) <> pad (drEndMonth dr)
+            <> "_" <> periodTag period
+  in cacheDir </> (tag <> ".json")
+  where
+    pad m = if m < 10 then '0':show m else show m
+
+periodTag :: CandlePeriod -> String
+periodTag OneMinute = "M1"
+periodTag FiveMinute = "M5"
+periodTag FifteenMinute = "M15"
+periodTag OneHour = "H1"
+periodTag FourHour = "H4"
+periodTag Daily = "D1"

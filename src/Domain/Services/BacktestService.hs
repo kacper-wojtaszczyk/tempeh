@@ -14,13 +14,13 @@ class Monad m => BacktestService m where
   calculatePerformanceMetrics :: BacktestResult -> Scientific -> m (Result PerformanceMetrics)
   validateBacktestParameters :: BacktestParameters -> m (Result ())
 
--- Data access service interface (moved from Port.DataProvider)
+-- Data access service interface
 class Monad m => DataProvider m where
   loadTicks :: Instrument -> DateRange -> m (Result [Tick])
   loadCandles :: Instrument -> DateRange -> CandlePeriod -> m (Result [Candle])
   validateDataQuality :: [Tick] -> m (Result DataQualityReport)
 
--- Risk management service interface (moved from Port.RiskManager)
+-- Risk management service interface
 class Monad m => RiskManager m where
   validateRiskLimits :: RiskLimits -> m (Result ())
   checkRiskLimits :: BacktestResult -> RiskLimits -> m (Result ())
@@ -28,7 +28,7 @@ class Monad m => RiskManager m where
   validatePositionSize :: Position -> Scientific -> m (Result ())
   assessPortfolioRisk :: [Position] -> Account -> m (Result RiskAssessment)
 
--- Broker service interface (moved from Port.Broker)
+-- Broker service interface
 class Monad m => BrokerService m where
   getAccount :: m Account
   marketOrder :: Order -> m OrderId
@@ -100,7 +100,7 @@ data StrategyParameters
     }
   deriving (Show, Eq)
 
--- Data provider types (moved from Port.DataProvider)
+-- Data provider types
 data DateRange = DateRange
   { drStartYear :: Int
   , drStartMonth :: Int
@@ -119,7 +119,7 @@ data DataQualityReport = DataQualityReport
   , dqrQualityScore :: Scientific  -- 0-100 score
   } deriving (Show, Eq)
 
--- Risk management types (moved from Port.RiskManager)
+-- Risk management types
 data DrawdownAnalysis = DrawdownAnalysis
   { daMaxDrawdown :: Scientific
   , daMaxDrawdownPercent :: Scientific

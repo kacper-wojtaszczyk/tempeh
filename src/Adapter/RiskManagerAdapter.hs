@@ -27,7 +27,7 @@ newtype BasicRiskManagerM a = BasicRiskManagerM
 
 instance RiskManager BasicRiskManagerM where
   validateRiskLimits limits = do
-    -- Inline the validation logic since validateBasicRiskLimits was removed with Port layer
+    -- Validate risk limits parameters
     let basicValidation =
           if | rlMaxDrawdown limits <= 0 -> Left $ ValidationError "Max drawdown must be positive"
              | rlMaxPositionSize limits <= 0 -> Left $ ValidationError "Max position size must be positive"

@@ -8,6 +8,7 @@ import Data.Scientific (Scientific, fromFloatDigits)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Aeson as JSON
+import qualified Data.ByteString.Lazy as LBS
 
 -- Factory for creating strategy instances
 createEmaStrategy :: Int -> Int -> Scientific -> StrategyInstance
@@ -63,14 +64,18 @@ rsiSignalGenerator period overbought oversold candles state =
 -- State serialization for EMA (simplified)
 serializeEmaState :: EmaState -> StrategyState
 serializeEmaState emaState = StrategyState
-  { ssInternal = T.pack $ show emaState  -- Simplified - would use JSON
+  { ssInternal = TE.decodeUtf8 . LBS.toStrict $ JSON.encode emaState
   }
 
 deserializeEmaState :: StrategyState -> EmaState
 deserializeEmaState strategyState =
-  case reads (T.unpack $ ssInternal strategyState) of
-    [(emaState, "")] -> emaState
-    _ -> EmaState Nothing Nothing Nothing  -- Default state if deserialization fails
+  let txt = ssInternal strategyState
+      tryJson = JSON.decode (LBS.fromStrict (TE.encodeUtf8 txt)) :: Maybe EmaState
+  in case tryJson of
+       Just es -> es
+       Nothing -> case reads (T.unpack txt) of
+         [(emaState, "")] -> emaState
+         _ -> EmaState Nothing Nothing Nothing  -- Default state if deserialization fails
 
 -- Factory function that creates strategy from parameters
 createStrategyFromConfig :: StrategyParameters -> StrategyInstance

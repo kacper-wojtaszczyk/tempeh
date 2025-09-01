@@ -36,9 +36,8 @@ data/backtesting/*
 cabal.project.local
 cabal.project.freeze
 
-# transient test/output files
-/test_run_output.txt
-/test_results.txt
-/test_build.txt
-/compilation_errors.txt
-/final_test_results.txt
+# adapter caches
+**/.cache/
+
+# transient output files
+log/

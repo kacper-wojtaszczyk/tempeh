@@ -13,8 +13,9 @@ library
 
     -- Application Layer (Orchestration & Services)
     , Application.BacktestOrchestrator
-    , Application.Main
     , Application.ReportingService
+    , Application.Env
+    , Application.CLI
 
     -- Adapters Layer (Infrastructure)
     , Adapter.CsvDataProvider
@@ -31,9 +32,6 @@ library
     , Util.Config
     , Util.Error
     , Util.Logger
-
-    -- Debug tools
-    , Debug.StrategyAnalyzer
 
   build-depends:
       base >=4.14 && <5
@@ -58,6 +56,8 @@ executable tempeh
       base
     , tempeh
     , text
+    , mtl
+    , scientific
   default-language:    Haskell2010
 
 test-suite tempeh-test
