@@ -74,8 +74,20 @@ test-suite tempeh-test
     , time
     , stm
     , text
+    , directory
+    , filepath
+    , transformers
+    , mtl
   other-modules:
+      -- Unit Tests
       Unit.Domain.TypesTest
+    , Unit.Domain.ServicesTest
     , Unit.Strategy.EmaCross.IndicatorsTest
     , Unit.Strategy.EmaCross.StrategyTest
+    , Unit.Adapter.CsvDataProviderTest
+    , Unit.Adapter.RiskManagerTest
+      -- Integration Tests
+    , Integration.BacktestIntegrationTest
+      -- E2E Tests
+    , E2E.CompleteBacktestTest
   default-language:    Haskell2010

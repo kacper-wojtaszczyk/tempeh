@@ -31,3 +31,14 @@ cabal.project.local~
 # mac
 .DS_Store
 data/backtesting/*
+
+# cabal local and new-build artifacts
+cabal.project.local
+cabal.project.freeze
+
+# transient test/output files
+/test_run_output.txt
+/test_results.txt
+/test_build.txt
+/compilation_errors.txt
+/final_test_results.txt

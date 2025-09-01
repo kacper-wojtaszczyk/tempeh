@@ -99,9 +99,11 @@ analyzeDrawdown equityCurve =
       maxDrawdown = maximum drawdowns
       currentDrawdown = last drawdowns
 
-      -- Calculate drawdown percentage
+      -- Calculate drawdown percentage safely to avoid Scientific precision issues
       finalBalance = snd $ last sortedCurve
-      maxDrawdownPercent = if finalBalance > 0 then (maxDrawdown / finalBalance) * 100 else 0
+      maxDrawdownPercent = if finalBalance > 0
+        then fromFloatDigits $ realToFrac maxDrawdown / realToFrac finalBalance * 100
+        else 0
 
       -- Identify drawdown periods
       drawdownPeriods = identifyDrawdownPeriods sortedCurve runningPeaks
