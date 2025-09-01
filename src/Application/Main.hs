@@ -3,10 +3,9 @@ module Application.Main where
 
 import Adapter.CsvDataProvider
 import Adapter.BacktestEngine
-import Adapter.StrategyFactory
+import Adapter.StrategyFactory (createStrategyFromConfig)
 import Domain.Services.BacktestService
 import Domain.Types
-import Port.DataProvider
 import Util.Error (Result)
 import Util.Config (defaultAppConfig, acDataDirectory)
 import Control.Monad.Reader

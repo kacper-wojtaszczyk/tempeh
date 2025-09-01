@@ -9,7 +9,7 @@ import Data.Scientific (Scientific)
 
 -- Core domain entities (kept pure and focused)
 newtype Price = Price { unPrice :: Scientific }
-  deriving (Show, Eq, Ord, Generic)
+  deriving (Show, Eq, Ord, Read, Generic)
 
 newtype Qty = Qty { unQty :: Scientific }
   deriving (Show, Eq, Ord, Generic)
@@ -91,4 +91,11 @@ data CurrencyPair = CurrencyPair
   , cpQuote :: Text
   , cpPipValue :: Scientific
   , cpMinSize :: Scientific
+  } deriving (Show, Eq, Generic)
+
+-- Risk management types (moved from BacktestOrchestrator to avoid circular imports)
+data RiskLimits = RiskLimits
+  { rlMaxDrawdown :: Scientific
+  , rlMaxPositionSize :: Scientific
+  , rlStopLossThreshold :: Scientific
   } deriving (Show, Eq, Generic)

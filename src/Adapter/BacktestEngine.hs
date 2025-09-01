@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Adapter.BacktestEngine where
 
 import Domain.Services.BacktestService
@@ -53,16 +54,22 @@ instance BacktestService BacktestEngineM where
         winningTrades = length $ filter (> 0) $ map calculateTradeResultPnL tradePairs
 
         winRate = if totalTrades > 0
-                  then fromIntegral winningTrades * 100 / fromIntegral totalTrades
+                  then fromFloatDigits $ (fromIntegral winningTrades * 100.0) / fromIntegral totalTrades
                   else 0
 
         winPnls = filter (> 0) $ map calculateTradeResultPnL tradePairs
         lossPnls = filter (< 0) $ map calculateTradeResultPnL tradePairs
 
-        avgWin = if length winPnls > 0 then sum winPnls / fromIntegral (length winPnls) else 0
-        avgLoss = if length lossPnls > 0 then abs (sum lossPnls) / fromIntegral (length lossPnls) else 0
+        avgWin = if length winPnls > 0
+                 then fromFloatDigits $ realToFrac (sum winPnls) / fromIntegral (length winPnls)
+                 else 0
+        avgLoss = if length lossPnls > 0
+                  then fromFloatDigits $ realToFrac (abs (sum lossPnls)) / fromIntegral (length lossPnls)
+                  else 0
 
-        profitFactor = if avgLoss > 0 then sum winPnls / abs (sum lossPnls) else 999999
+        profitFactor = if avgLoss > 0
+                       then fromFloatDigits $ realToFrac (sum winPnls) / realToFrac (abs (sum lossPnls))
+                       else 999999
 
     pure $ Right $ PerformanceMetrics
       { pmWinRate = winRate

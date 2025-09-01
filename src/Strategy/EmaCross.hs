@@ -4,9 +4,10 @@ module Strategy.EmaCross
   , emaCrossStrategyWithConfig
   , ema
   , EmaState(..)
+  , computeEma
   ) where
 
-import Port.Strategy
+import Domain.Strategy
 import Domain.Types
 import Strategy.Config (StrategyParameters(..), StrategyConfig(..))
 import Data.Functor.Identity
@@ -17,7 +18,7 @@ data EmaState = EmaState
   { prevFast :: Maybe Price
   , prevSlow :: Maybe Price
   , prevDiff :: Maybe Scientific
-  } deriving (Show)
+  } deriving (Show, Read, Eq)
 
 -- Legacy function for backward compatibility
 emaCrossStrategy :: Int -> Int -> Strategy EmaState Identity

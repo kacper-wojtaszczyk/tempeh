@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Adapter.CsvDataProvider where
 
-import Port.DataProvider
+import Domain.Services.BacktestService (DataProvider(..), DateRange(..), CandlePeriod(..), DataQualityReport(..))
 import Domain.Types
 import Util.Error (Result, AppError(..))
 import qualified Data.Text as T
@@ -12,8 +13,8 @@ import System.FilePath ((</>))
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader
 import Data.Maybe (mapMaybe)
-import Data.Scientific (fromFloatDigits)
-import Data.Time (UTCTime, parseTimeM, defaultTimeLocale)
+import Data.Scientific (fromFloatDigits, Scientific)
+import Data.Time (UTCTime, parseTimeM, defaultTimeLocale, addUTCTime)
 import Data.List (sortOn)
 import Control.Exception (catch, IOException)
 
@@ -56,7 +57,7 @@ loadTicksFromCsv dataDir instrument dateRange = do
           let (errors, tickLists) = partitionEithers allTickResults
           if null errors
             then pure $ Right $ sortOn tTime $ concat tickLists
-            else pure $ Left $ FileError $ "File loading errors: " <> T.intercalate "; " (map show errors)
+            else pure $ Left $ FileError $ "File loading errors: " <> T.intercalate "; " (map (T.pack . show) errors)
 
 getMatchingFiles :: FilePath -> Instrument -> DateRange -> IO (Result [String])
 getMatchingFiles dataDir instrument dateRange = do
@@ -188,7 +189,18 @@ parseDateTime dateTimeStr =
 -- Simplified implementations for missing functions
 groupByTimePeriod :: Int -> [Tick] -> [[Tick]]
 groupByTimePeriod _ [] = []
-groupByTimePeriod periodSeconds ticks = [ticks] -- Simplified - would need proper time grouping
+groupByTimePeriod periodSeconds ticks =
+  let sortedTicks = sortOn tTime ticks
+  in groupTicksByTimePeriod periodSeconds sortedTicks
+
+-- Properly group ticks by time periods
+groupTicksByTimePeriod :: Int -> [Tick] -> [[Tick]]
+groupTicksByTimePeriod _ [] = []
+groupTicksByTimePeriod periodSeconds (firstTick:restTicks) =
+  let startTime = tTime firstTick
+      periodEnd = addUTCTime (fromIntegral periodSeconds) startTime
+      (currentGroup, remaining) = span (\tick -> tTime tick < periodEnd) (firstTick:restTicks)
+  in currentGroup : groupTicksByTimePeriod periodSeconds remaining
 
 convertTickGroupToCandle :: [Tick] -> Maybe Candle
 convertTickGroupToCandle [] = Nothing

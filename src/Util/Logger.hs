@@ -1,5 +1,15 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Util.Logger where
+module Util.Logger
+  ( LogLevel(..)
+  , Logger(..)
+  , mkLogger
+  , logWithLevel
+  , logDebug
+  , logInfo
+  , logWarn
+  , logError
+  , defaultLogger
+  ) where
 
 import Util.Config (LogLevel(..), LogConfig(..))
 import Control.Monad.IO.Class (MonadIO, liftIO)
@@ -7,13 +17,6 @@ import Data.Time (getCurrentTime, formatTime, defaultTimeLocale)
 import System.IO (hPutStrLn, stderr, Handle, stdout)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-
--- Logger monad for dependency injection
-class Monad m => MonadLogger m where
-  logDebug :: T.Text -> m ()
-  logInfo :: T.Text -> m ()
-  logWarn :: T.Text -> m ()
-  logError :: T.Text -> m ()
 
 -- Simple IO-based logger implementation
 newtype Logger = Logger
@@ -40,13 +43,49 @@ mkLogger config = Logger $ \_ msg level -> do
     when True action = action
     when False _ = pure ()
 
--- Helper functions for cleaner logging
-logWithLevel :: MonadIO m => Logger -> LogConfig -> T.Text -> T.Text -> m ()
-logWithLevel logger config levelStr msg = liftIO $ do
-  let level = case levelStr of
-        "Debug" -> Debug
-        "Info"  -> Info
-        "Warn"  -> Warn
-        "Error" -> Error
-        _       -> Info  -- Default fallback
-  runLogger logger config msg level
+-- | Log a message with a specific log level.
+logWithLevel :: MonadIO m => LogLevel -> T.Text -> m ()
+logWithLevel level msg = liftIO $ do
+  timestamp <- getCurrentTime
+  let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" timestamp
+      levelStr = case level of
+        Debug -> "[DEBUG]"
+        Info  -> "[INFO] "
+        Warn  -> "[WARN] "
+        Error -> "[ERROR]"
+      logLine = T.pack timeStr <> " " <> levelStr <> " " <> msg
+  TIO.putStrLn logLine
+
+-- Convenient logging functions for direct use
+logDebug :: MonadIO m => T.Text -> m ()
+logDebug msg = liftIO $ do
+  timestamp <- getCurrentTime
+  let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" timestamp
+  TIO.putStrLn $ T.pack timeStr <> " [DEBUG] " <> msg
+
+logInfo :: MonadIO m => T.Text -> m ()
+logInfo msg = liftIO $ do
+  timestamp <- getCurrentTime
+  let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" timestamp
+  TIO.putStrLn $ T.pack timeStr <> " [INFO]  " <> msg
+
+logWarn :: MonadIO m => T.Text -> m ()
+logWarn msg = liftIO $ do
+  timestamp <- getCurrentTime
+  let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" timestamp
+  TIO.putStrLn $ T.pack timeStr <> " [WARN]  " <> msg
+
+logError :: MonadIO m => T.Text -> m ()
+logError msg = liftIO $ do
+  timestamp <- getCurrentTime
+  let timeStr = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" timestamp
+  TIO.putStrLn $ T.pack timeStr <> " [ERROR] " <> msg
+
+-- Default logger configuration
+defaultLogger :: Logger
+defaultLogger = mkLogger defaultLogConfig
+  where
+    defaultLogConfig = LogConfig
+      { lcLevel = Info
+      , lcOutputFile = Nothing
+      }

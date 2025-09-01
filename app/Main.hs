@@ -2,9 +2,8 @@ module Main where
 
 import System.Environment (getArgs)
 import Application.Main (runBacktestWithNewArchitecture)
-import Domain.Services.BacktestService (StrategyParameters(..))
+import Domain.Services.BacktestService (StrategyParameters(..), DateRange(..))
 import Domain.Types (Instrument(..))
-import Port.DataProvider (DateRange(..))
 import Text.Read (readMaybe)
 import qualified Data.Text as T
 

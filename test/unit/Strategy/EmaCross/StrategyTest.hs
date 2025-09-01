@@ -4,7 +4,7 @@ module Unit.Strategy.EmaCross.StrategyTest (tests) where
 import Test.Tasty
 import Test.Tasty.HUnit
 import Data.Functor.Identity (Identity, runIdentity)
-import Port.Strategy
+import Domain.Strategy
 import Strategy.EmaCross (emaCrossStrategy)
 import Domain.Types
 import Data.Scientific (fromFloatDigits)

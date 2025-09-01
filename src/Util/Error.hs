@@ -11,6 +11,8 @@ data AppError
   | ConfigError Text
   | BacktestError Text
   | ValidationError Text
+  | RiskViolationError Text
+  | UnsupportedOperationError Text
   deriving (Show, Eq)
 
 -- Helper to convert errors to readable messages
@@ -20,6 +22,8 @@ errorMessage (FileError msg) = "File error: " <> msg
 errorMessage (ConfigError msg) = "Configuration error: " <> msg
 errorMessage (BacktestError msg) = "Backtest error: " <> msg
 errorMessage (ValidationError msg) = "Validation error: " <> msg
+errorMessage (RiskViolationError msg) = "Risk violation: " <> msg
+errorMessage (UnsupportedOperationError msg) = "Unsupported operation: " <> msg
 
 -- Result type alias for cleaner code
 type Result a = Either AppError a

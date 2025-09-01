@@ -1,7 +1,6 @@
-module Port.Strategy where
+module Domain.Strategy where
 
 import Domain.Types
-import Data.Functor.Identity
 
 -- Pluggable strategy abstraction.
 -- s = internal strategy state
