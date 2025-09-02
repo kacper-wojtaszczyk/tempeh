@@ -5,11 +5,18 @@ import qualified Unit.Domain.TypesTest
 import qualified Unit.Domain.ServicesTest
 import qualified Unit.Strategy.EmaCross.IndicatorsTest
 import qualified Unit.Strategy.EmaCross.StrategyTest
+import qualified Unit.Strategy.BollingerBands.IndicatorsTest
+import qualified Unit.Strategy.BollingerBands.StrategyTest
+import qualified Unit.Application.CLITest
 import qualified Unit.Adapter.CsvDataProviderTest
 import qualified Unit.Adapter.RiskManagerTest
+import qualified Unit.Adapter.BacktestEngineTest
+import qualified Unit.Util.ConfigTest
+import qualified Unit.Util.ErrorTest
 
 -- Integration Tests (Many - Component interactions, bulk of coverage)
 import qualified Integration.BacktestIntegrationTest
+import qualified Integration.StrategyComparisonTest
 
 -- E2E Tests (Few - Complete workflows)
 import qualified E2E.CompleteBacktestTest
@@ -21,6 +28,7 @@ main = defaultMain $ testGroup "Tempeh Test Suite (Testing Diamond)"
     ]
   , testGroup "🔶 Integration Tests (Many - Component Interactions - Bulk Coverage)"
     [ Integration.BacktestIntegrationTest.tests
+    , Integration.StrategyComparisonTest.tests
     ]
   , testGroup "🔻 Unit Tests (Some - Critical Business Logic)"
     [ testGroup "Domain Layer"
@@ -30,10 +38,20 @@ main = defaultMain $ testGroup "Tempeh Test Suite (Testing Diamond)"
     , testGroup "Strategy Layer"
       [ Unit.Strategy.EmaCross.IndicatorsTest.tests
       , Unit.Strategy.EmaCross.StrategyTest.tests
+      , Unit.Strategy.BollingerBands.IndicatorsTest.tests
+      , Unit.Strategy.BollingerBands.StrategyTest.tests
+      ]
+    , testGroup "Application Layer"
+      [ Unit.Application.CLITest.tests
       ]
     , testGroup "Adapter Layer"
       [ Unit.Adapter.CsvDataProviderTest.tests
       , Unit.Adapter.RiskManagerTest.tests
+      , Unit.Adapter.BacktestEngineTest.tests
+      ]
+    , testGroup "Util Layer"
+      [ Unit.Util.ConfigTest.tests
+      , Unit.Util.ErrorTest.tests
       ]
     ]
   ]

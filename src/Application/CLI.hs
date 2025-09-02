@@ -26,7 +26,7 @@ data Command
   = BacktestCommand Instrument DateRange StrategyParameters
   | HelpCommand
   | InvalidCommand String
-  deriving (Show)
+  deriving (Show, Eq)
 
 -- Main CLI entry point
 runCLI :: IO ()

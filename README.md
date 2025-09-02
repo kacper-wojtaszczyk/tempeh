@@ -42,7 +42,7 @@ The project follows clean architecture principles with clear separation of conce
 
 ## ✨ Features
 
-- **🔄 Multiple Trading Strategies**: EMA Crossover and RSI Mean Reversion with parameterizable settings
+- **🔄 Multiple Trading Strategies**: EMA Crossover, RSI Mean Reversion, and Bollinger Bands with parameterizable settings
 - **⚙️ Configurable Parameters**: Customize strategy parameters directly from the command line
 - **📊 Tick Data Processing**: Converts raw tick data to OHLC candles for strategy analysis
 - **⚡ Pure Functional Backtesting**: Immutable, composable backtesting engine (time machine for seeing how broke I would have been)
@@ -66,6 +66,12 @@ The project follows clean architecture principles with clear separation of conce
 - **Logic**: Buy when RSI drops below oversold level, sell when above overbought level
 - **Best For**: Range-bound markets
 
+### Bollinger Bands (Volatility Mean Reversion)
+- **Parameters**: `bb [period] [std_multiplier] [threshold]`
+- **Default**: `20 2.0 0.0001`
+- **Logic**: Buy when price touches lower band (oversold), sell when price touches upper band (overbought)
+- **Best For**: Range-bound markets with mean-reverting price action
+
 ## 📈 Strategy Comparison Examples
 
 ```bash
@@ -77,6 +83,9 @@ cabal run tempeh backtest EURUSD 2025 1 2025 3 ema 21 50 0.001    # Slow
 # Compare trend-following vs mean-reversion on the same period  
 cabal run tempeh backtest GBPUSD 2025 7 2025 8 ema 12 26 0.0005   # Trend following
 cabal run tempeh backtest GBPUSD 2025 7 2025 8 rsi 14 70 30       # Mean reversion
+
+# Test Bollinger Bands mean reversion strategy
+cabal run tempeh backtest GBPUSD 2025 7 2025 8 bb 20 2.0 0.0001   # Bollinger Bands
 ```
 
 ## 📊 Data Requirements
@@ -135,7 +144,7 @@ tempeh backtest <instrument> <start_year> <start_month> <end_year> <end_month> <
 - **instrument**: Currency pair (EURUSD, GBPUSD, USDJPY, etc.)
 - **start_year/month**: Start date (e.g., 2025 1)
 - **end_year/month**: End date (e.g., 2025 3)
-- **strategy**: `ema` or `rsi` with optional parameters
+- **strategy**: `ema`, `rsi`, or `bb` with optional parameters
 
 ### EMA Parameters (optional)
 - **fast**: Fast EMA period (default: 5)
@@ -146,6 +155,11 @@ tempeh backtest <instrument> <start_year> <start_month> <end_year> <end_month> <
 - **period**: RSI calculation period (default: 14)
 - **overbought**: Overbought level (default: 70)
 - **oversold**: Oversold level (default: 30)
+
+### Bollinger Bands Parameters (optional)
+- **period**: Bollinger Bands period (default: 20)
+- **deviation**: Standard deviation multiplier (default: 2)
+- **threshold**: Signal threshold in pips (default: 0.0001)
 
 ## 🎯 Performance
 

@@ -29,6 +29,7 @@ library
     -- Strategy Implementations
     , Strategy.EmaCross
     , Strategy.RSI
+    , Strategy.BollingerBands
 
     -- Utilities
     , Util.Config
@@ -86,10 +87,17 @@ test-suite tempeh-test
     , Unit.Domain.ServicesTest
     , Unit.Strategy.EmaCross.IndicatorsTest
     , Unit.Strategy.EmaCross.StrategyTest
+    , Unit.Strategy.BollingerBands.IndicatorsTest
+    , Unit.Strategy.BollingerBands.StrategyTest
+    , Unit.Application.CLITest
     , Unit.Adapter.CsvDataProviderTest
     , Unit.Adapter.RiskManagerTest
+    , Unit.Adapter.BacktestEngineTest
+    , Unit.Util.ConfigTest
+    , Unit.Util.ErrorTest
       -- Integration Tests
     , Integration.BacktestIntegrationTest
+    , Integration.StrategyComparisonTest
       -- E2E Tests
     , E2E.CompleteBacktestTest
   default-language:    Haskell2010
