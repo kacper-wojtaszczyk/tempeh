@@ -4,6 +4,34 @@ A Haskell-based forex trading bot with backtesting capabilities built using **Po
 
 I'm using Copilot extensively, at least in the initial stages. Feel free to comment on any hallucinations you notice.
 
+## 🚧 Project Status
+
+**Current Phase: Backtesting Engine (95% Complete)**
+
+This is a **work-in-progress** project currently focused on building a robust backtesting foundation before moving to live trading capabilities. The backtesting engine is nearly complete and battle-tested with historical forex data.
+
+### ✅ Completed Features
+- Core backtesting engine with hexagonal architecture
+- EMA Crossover and RSI Mean Reversion strategies
+- Comprehensive test suite (unit, integration, e2e)
+- CSV data ingestion from histdata.com
+- Detailed performance reporting and analytics
+- Risk management and position sizing
+- Configurable strategy parameters via CLI
+
+### 🔄 Current Work
+- Performance optimizations for large datasets
+- Additional technical indicators and strategies
+- Enhanced reporting with drawdown analysis
+- Strategy parameter optimization tools
+
+### 🎯 Future Plans: Live Trading
+- Real-time data feeds integration
+- Broker API adapters (OANDA, Interactive Brokers)
+- Live execution engine with order management
+- Real-time monitoring and alerting
+- Paper trading mode for strategy validation
+
 ## 🏗️ Architecture
 
 The project follows clean architecture principles with clear separation of concerns across three layers:
@@ -22,34 +50,7 @@ The project follows clean architecture principles with clear separation of conce
 - **📋 Comprehensive Reporting**: Detailed P&L analysis, trade history, and performance metrics
 - **🛡️ Risk Management**: Built-in position sizing and risk controls
 - **🧪 Extensive Testing**: Tests following the Testing Diamond approach
-
-## 🚀 Usage
-
-### Basic Commands
-
-```bash
-# Show help
-cabal run tempeh -- --help
-
-# EMA strategy with default parameters (5/20 periods, 0.0001 threshold)
-cabal run tempeh backtest EURUSD 2025 1 2025 3 ema
-
-# RSI strategy with default parameters (14-period, 70/30 levels)
-cabal run tempeh backtest GBPUSD 2025 7 2025 8 rsi
-```
-
-### Advanced Parameter Customization
-
-```bash
-# Custom EMA parameters: 12/26 periods with 0.0005 threshold
-cabal run tempeh backtest EURUSD 2025 1 2025 3 ema 12 26 0.0005
-
-# Custom RSI parameters: 21-period with 80/20 overbought/oversold levels
-cabal run tempeh backtest GBPUSD 2025 7 2025 8 rsi 21 80 20
-
-# Conservative RSI: Wider bands (25/75) for fewer but stronger signals
-cabal run tempeh backtest USDJPY 2025 6 2025 6 rsi 14 75 25
-```
+- **🏗️ Clean Architecture**: Hexagonal architecture ready for live trading extensions
 
 ## 📊 Available Strategies
 
