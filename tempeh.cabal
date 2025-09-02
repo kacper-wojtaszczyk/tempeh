@@ -1,4 +1,4 @@
-cabal-version:       1.24
+cabal-version:       2.4
 name:                tempeh
 version:             0.1.0.0
 build-type:          Simple
@@ -8,25 +8,27 @@ library
   exposed-modules:
     -- Domain Layer (Pure Business Logic)
       Domain.Types
-    , Domain.Strategy
     , Domain.Services.BacktestService
+    , Domain.Strategy
 
     -- Application Layer (Orchestration & Services)
     , Application.BacktestOrchestrator
     , Application.ReportingService
     , Application.Env
     , Application.CLI
+    , Application.Strategy.Factory
+    , Application.Strategy.Registry
+    , Application.Strategy.Types
 
     -- Adapters Layer (Infrastructure)
     , Adapter.CsvDataProvider
     , Adapter.BacktestEngine
-    , Adapter.StrategyFactory
     , Adapter.ReportGeneratorAdapter
     , Adapter.RiskManagerAdapter
 
     -- Strategy Implementations
     , Strategy.EmaCross
-    , Strategy.Config
+    , Strategy.RSI
 
     -- Utilities
     , Util.Config

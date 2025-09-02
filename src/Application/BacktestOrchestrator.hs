@@ -9,12 +9,15 @@ module Application.BacktestOrchestrator
 import Domain.Types
 import Domain.Services.BacktestService
 import Application.ReportingService
+import Application.Strategy.Types (StrategyParameters(..), StrategyInstance(..), StrategyProvider(..))
+import Application.Strategy.Factory (initializeStrategyRegistry)
+import Application.Strategy.Registry (StrategyRegistry, findStrategyByKeyword)
 import Util.Error (Result, AppError(..))
-import Util.Logger (LogLevel(..), logInfo, logError)
+import Util.Logger (logInfo, logError)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Scientific (Scientific, fromFloatDigits)
 import qualified Data.Text as T
-import Adapter.StrategyFactory (createStrategyFromConfig)
+import qualified Strategy.EmaCross as EmaCross
 
 -- Orchestrator configuration
 data BacktestConfig = BacktestConfig
@@ -129,19 +132,29 @@ executeBacktestWithRiskManagement config candles = do
         , bpSlippage = fromFloatDigits 0.0001
         }
 
-  -- Create strategy instance from config
-  let strategyInstance = createStrategyFromConfig (bcStrategyParams config)
-
-  -- Execute backtest
-  backtestResult <- executeBacktest params strategyInstance candles
-  case backtestResult of
-    Left err -> pure $ Left err
-    Right result -> do
-      -- Apply risk management checks
-      riskCheckResult <- checkRiskLimits result (bcRiskLimits config)
-      case riskCheckResult of
+  -- Create strategy instance using the registry system
+  let registry = initializeStrategyRegistry
+  case createStrategyInstanceFromParams registry (bcStrategyParams config) of
+    Left err -> pure (Left err)
+    Right strategyInstance -> do
+      -- Execute backtest with initial state and signal generator
+      backtestResult <- executeBacktest params (siInitialState strategyInstance) (siSignalGenerator strategyInstance) candles
+      case backtestResult of
         Left err -> pure $ Left err
-        Right () -> pure $ Right result
+        Right result -> do
+          -- Apply risk management checks
+          riskCheckResult <- checkRiskLimits result (bcRiskLimits config)
+          case riskCheckResult of
+            Left err -> pure $ Left err
+            Right () -> pure $ Right result
+
+-- Helper function to create strategy instance from parameters using registry
+createStrategyInstanceFromParams :: StrategyRegistry -> StrategyParameters -> Result StrategyInstance
+createStrategyInstanceFromParams registry params =
+  let strategyType = spStrategyType params
+  in case findStrategyByKeyword (T.unpack strategyType) registry of
+       Just provider -> Right (spFactory provider params)
+       Nothing -> Left $ ConfigError $ "Unknown strategy type: " <> strategyType
 
 -- Generate comprehensive report
 generatePerformanceReport :: (MonadIO m, BacktestService m, ReportGenerator m)
@@ -161,11 +174,20 @@ generatePerformanceReport result config rptCtx = do
         Left err -> pure $ Left err
         Right _ -> pure $ Right result
 
+-- Obtain default EMA parameters from the registry in a pure way
+getDefaultEmaParams :: StrategyParameters
+getDefaultEmaParams =
+  let registry = initializeStrategyRegistry
+  in case findStrategyByKeyword "ema" registry of
+       Just provider -> spDefaultParams provider
+       -- Safe fallback to EMA provider defaults if registry lookup fails
+       Nothing -> spDefaultParams EmaCross.strategyProvider
+
 defaultBacktestConfig :: BacktestConfig
 defaultBacktestConfig = BacktestConfig
   { bcInstrument = Instrument "EURUSD"
   , bcDateRange = DateRange 2025 1 2025 3
-  , bcStrategyParams = EmaCrossParams 5 20 0.0001
+  , bcStrategyParams = getDefaultEmaParams
   , bcInitialBalance = fromFloatDigits 10000.0
   , bcPositionSize = fromFloatDigits 1000.0
   , bcRiskLimits = RiskLimits

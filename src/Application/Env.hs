@@ -11,6 +11,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 
 import Domain.Services.BacktestService
 import Domain.Types
+import Domain.Strategy (StrategyState(..))
 
 import Application.ReportingService (ReportGenerator(..))
 import Adapter.CsvDataProvider
@@ -78,22 +79,20 @@ instance ReportGenerator AppM where
 
 -- BacktestService instance delegates to BacktestEngine
 instance BacktestService AppM where
-  executeBacktest params strategy candles = do
-    -- BacktestEngine sets its own initial state internally
-    liftIO $ evalStateT (runBacktestEngine $ executeBacktest params strategy candles) dummyState
+  executeBacktest params initState sigGen candles = do
+    liftIO $ evalStateT (runBacktestEngine $ executeBacktest params initState sigGen candles) dummyState
   calculatePerformanceMetrics res initialBalance =
     liftIO $ evalStateT (runBacktestEngine $ calculatePerformanceMetrics res initialBalance) dummyState
   validateBacktestParameters bp =
     liftIO $ evalStateT (runBacktestEngine $ validateBacktestParameters bp) dummyState
 
 -- Dummy state (BacktestEngine overwrites state internally before use)
--- Safe placeholder to satisfy the StateT runner
 {-# INLINE dummyState #-}
 dummyState :: BacktestEngineState
 dummyState = BacktestEngineState
   { besBalance = 0
   , besPosition = Nothing
   , besTrades = []
-  , besStrategyState = StrategyState mempty
+  , besStrategyState = StrategyState { unStrategyState = mempty }
   , besEquityCurve = []
   }

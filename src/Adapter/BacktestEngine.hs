@@ -1,16 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DeriveFunctor #-}
 module Adapter.BacktestEngine where
 
-import Domain.Services.BacktestService
-import Domain.Types
-import Util.Error (Result, AppError(..))
 import Control.Monad.State
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Data.List (sortOn)
 import Data.Scientific (Scientific, fromFloatDigits)
 import Data.Time (UTCTime)
 import qualified Data.Text as T
-import Data.List (sortOn, scanl1)
+import Domain.Types
+import Domain.Strategy (StrategyState(..))
+import Domain.Services.BacktestService
+import Application.Strategy.Types (StrategyInstance, SignalGenerator)
+import Util.Error (Result, AppError(..))
 
 -- Adapter implementation of BacktestService using State monad
 data BacktestEngineState = BacktestEngineState
@@ -26,17 +28,17 @@ newtype BacktestEngineM a = BacktestEngineM
   deriving (Functor, Applicative, Monad, MonadState BacktestEngineState, MonadIO)
 
 instance BacktestService BacktestEngineM where
-  executeBacktest params strategyInstance candles = do
+  executeBacktest params initialStrategyState signalGenerator candles = do
     let initialState = BacktestEngineState
           { besBalance = bpInitialBalance params
           , besPosition = Nothing
           , besTrades = []
-          , besStrategyState = StrategyState ""  -- Initialize empty state
+          , besStrategyState = initialStrategyState
           , besEquityCurve = []
           }
 
     put initialState
-    processCandlesWithStrategy params strategyInstance candles
+    processCandlesWithSignalGenerator params signalGenerator candles
 
     finalState <- get
     pure $ Right $ BacktestResult
@@ -102,9 +104,9 @@ instance BacktestService BacktestEngineM where
       else pure $ Left $ ValidationError "Invalid backtest parameters"
 
 -- Core processing logic
-processCandlesWithStrategy :: BacktestParameters -> StrategyInstance -> [Candle] -> BacktestEngineM ()
-processCandlesWithStrategy params strategyInstance candles = do
-  mapM_ (processCandleWithStrategy params strategyInstance) candles
+processCandlesWithSignalGenerator :: BacktestParameters -> SignalGenerator -> [Candle] -> BacktestEngineM ()
+processCandlesWithSignalGenerator params signalGenerator candles = do
+  mapM_ (processCandleWithSignalGenerator params signalGenerator) candles
   -- Force-close any open position at end of backtest using last candle
   state <- get
   case (candles, besPosition state) of
@@ -112,11 +114,11 @@ processCandlesWithStrategy params strategyInstance candles = do
     (_, Nothing) -> pure ()
     (_, Just _) -> closeCurrentPosition (last candles)
 
-processCandleWithStrategy :: BacktestParameters -> StrategyInstance -> Candle -> BacktestEngineM ()
-processCandleWithStrategy params strategyInstance candle = do
+processCandleWithSignalGenerator :: BacktestParameters -> SignalGenerator -> Candle -> BacktestEngineM ()
+processCandleWithSignalGenerator params signalGenerator candle = do
   state <- get
 
-  let (signal, newStrategyState) = siSignalGenerator strategyInstance [candle] (besStrategyState state)
+  let (signal, newStrategyState) = signalGenerator [candle] (besStrategyState state)
 
   modify $ \s -> s { besStrategyState = newStrategyState }
 

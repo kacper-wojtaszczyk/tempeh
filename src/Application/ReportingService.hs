@@ -3,6 +3,7 @@ module Application.ReportingService where
 
 import Domain.Types
 import Domain.Services.BacktestService
+import Application.Strategy.Types (StrategyParameters)
 import Util.Error (Result)
 import Data.Scientific (Scientific)
 import Data.Time (UTCTime)

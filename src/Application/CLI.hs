@@ -11,10 +11,10 @@ import Adapter.RiskManagerAdapter (BasicRiskManager, defaultBasicRiskManager)
 import Adapter.ReportGeneratorAdapter (ConsoleReportGenerator(..))
 import Application.BacktestOrchestrator (orchestrateBacktest, BacktestConfig(..), defaultBacktestConfig)
 import Application.Env (AppEnv(..), runAppM)
-import Domain.Services.BacktestService ( StrategyParameters(..)
-                                       , DateRange(..)
-                                       , BacktestResult(..)
-                                       )
+import Application.Strategy.Types (StrategyParameters(..), StrategyProvider(..))
+import Application.Strategy.Factory (initializeStrategyRegistry)
+import Application.Strategy.Registry (StrategyRegistry, listAvailableStrategies)
+import Domain.Services.BacktestService (DateRange(..), BacktestResult(..))
 import Domain.Types (Instrument(..))
 import Util.Config (defaultAppConfig, acDataDirectory)
 import Data.Scientific (fromFloatDigits)
@@ -32,28 +32,50 @@ data Command
 runCLI :: IO ()
 runCLI = do
   args <- getArgs
-  case parseCommand args of
+  let registry = initializeStrategyRegistry
+  case parseCommand registry args of
     BacktestCommand instrument dateRange strategyParams ->
       runBacktest instrument dateRange strategyParams
     HelpCommand ->
-      printUsage
+      printUsage registry
     InvalidCommand err -> do
       putStrLn $ "Error: " ++ err
-      printUsage
+      printUsage registry
 
--- Command parsing
-parseCommand :: [String] -> Command
-parseCommand [] = HelpCommand
-parseCommand ["--help"] = HelpCommand
-parseCommand ["-h"] = HelpCommand
-parseCommand ["backtest", instrumentStr, startYearStr, startMonthStr, endYearStr, endMonthStr] =
-  case (parseInstrument instrumentStr, parseTimeRange startYearStr startMonthStr endYearStr endMonthStr) of
-    (Just instrument, Just dateRange) ->
-      let strategyParams = EmaCrossParams 5 20 0.0001  -- Default EMA parameters
-      in BacktestCommand instrument dateRange strategyParams
-    (Nothing, _) -> InvalidCommand $ "Invalid instrument format: " ++ instrumentStr ++ ". Use alphanumeric characters only."
-    (_, Nothing) -> InvalidCommand "Invalid date format. Use: backtest <instrument> <start_year> <start_month> <end_year> <end_month>"
-parseCommand args = InvalidCommand $ "Invalid arguments: " ++ unwords args
+-- Refactored command parsing using abstract strategies
+parseCommand :: StrategyRegistry -> [String] -> Command
+parseCommand _ [] = HelpCommand
+parseCommand _ ["--help"] = HelpCommand
+parseCommand _ ["-h"] = HelpCommand
+
+-- Generic strategy parsing using registry
+parseCommand registry ("backtest":instrumentStr:startYearStr:startMonthStr:endYearStr:endMonthStr:strategyKeyword:params) =
+  case findProvider strategyKeyword registry of
+    Just provider ->
+      case ( parseInstrument instrumentStr
+           , parseTimeRange startYearStr startMonthStr endYearStr endMonthStr
+           , parseStrategyParams provider params
+           ) of
+        (Just instrument, Just dateRange, Just strategyParams) ->
+          BacktestCommand instrument dateRange strategyParams
+        (Nothing, _, _) -> InvalidCommand $ "Invalid instrument format: " ++ instrumentStr
+        (_, Nothing, _) -> InvalidCommand "Invalid date format"
+        (_, _, Nothing) -> InvalidCommand $ "Invalid " ++ strategyKeyword ++ " parameters. See --help for parameter format"
+    Nothing -> InvalidCommand $ "Unknown strategy: " ++ strategyKeyword ++ ". Available strategies: " ++ availableKeywords registry
+
+-- Handle case where strategy is missing
+parseCommand registry ["backtest", instrumentStr, startYearStr, startMonthStr, endYearStr, endMonthStr] =
+  InvalidCommand $ "Strategy is required. Available strategies: " ++ availableKeywords registry
+
+parseCommand _ args = InvalidCommand $ "Invalid arguments: " ++ unwords args
+
+-- Parse strategy parameters using provider
+parseStrategyParams :: StrategyProvider -> [String] -> Maybe StrategyParameters
+parseStrategyParams provider params =
+  let toTexts = map T.pack params
+  in case spParseParams provider toTexts of
+       Just parsed -> if spValidateParams provider parsed then Just parsed else Nothing
+       Nothing -> Just (spDefaultParams provider) -- Use defaults when none or invalid provided
 
 -- Backtest execution
 runBacktest :: Instrument -> DateRange -> StrategyParameters -> IO ()
@@ -82,32 +104,54 @@ runBacktest instrument dateRange strategyParams = do
   case result of
     Left err -> putStrLn $ "Backtest failed: " <> show err
     Right final -> do
-      -- Orchestrator already generated report; print a succinct summary
       putStrLn "\n=== BACKTEST RESULTS ==="
       putStrLn $ "Final Balance: $" <> show (brFinalBalance final)
       putStrLn $ "Total P&L: $" <> show (brPnL final)
       putStrLn $ "Total Trades: " <> show (brTotalTrades final)
 
--- Help and usage
-printUsage :: IO ()
-printUsage = do
-  putStrLn "TEMPEH Trading Bot - Ports & Adapters Architecture"
+-- Enhanced help function using strategy registry
+printUsage :: StrategyRegistry -> IO ()
+printUsage registry = do
+  putStrLn "TEMPEH - Trading Strategy Backtester"
   putStrLn ""
-  putStrLn "Usage:"
-  putStrLn "  tempeh backtest <instrument> <start_year> <start_month> <end_year> <end_month>"
+  putStrLn "USAGE:"
+  putStrLn "  tempeh backtest <INSTRUMENT> <START_YEAR> <START_MONTH> <END_YEAR> <END_MONTH> <STRATEGY> [STRATEGY_PARAMS...]"
   putStrLn "  tempeh --help"
   putStrLn ""
-  putStrLn "Parameters:"
-  putStrLn "  instrument     - Currency pair (e.g., EURUSD, GBPUSD, USDJPY)"
-  putStrLn "  start_year     - Start year (e.g., 2025)"
-  putStrLn "  start_month    - Start month (1-12)"
-  putStrLn "  end_year       - End year (e.g., 2025)"
-  putStrLn "  end_month      - End month (1-12)"
+  putStrLn "ARGUMENTS:"
+  putStrLn "  INSTRUMENT     Currency pair (e.g., EURUSD, GBPUSD)"
+  putStrLn "  START_YEAR     Start year for backtest (e.g., 2025)"
+  putStrLn "  START_MONTH    Start month for backtest (1-12)"
+  putStrLn "  END_YEAR       End year for backtest (e.g., 2025)"
+  putStrLn "  END_MONTH      End month for backtest (1-12)"
+  putStrLn "  STRATEGY       Strategy name (see available strategies below)"
   putStrLn ""
-  putStrLn "Examples:"
-  putStrLn "  tempeh backtest EURUSD 2025 1 2025 3      - Run EURUSD backtest from Jan 2025 to Mar 2025"
-  putStrLn "  tempeh backtest GBPUSD 2025 7 2025 8      - Run GBPUSD backtest from Jul 2025 to Aug 2025"
-  putStrLn "  tempeh backtest USDJPY 2025 6 2025 6      - Run USDJPY backtest for June 2025 only"
+  putStrLn "AVAILABLE STRATEGIES:"
+
+  -- List available strategies from registry
+  mapM_ printProvider (listAvailableStrategies registry)
+
+  putStrLn ""
+  putStrLn "EXAMPLES:"
+  putStrLn "  tempeh backtest EURUSD 2025 1 2025 3 ema 5 20 0.0001"
+  putStrLn "  tempeh backtest GBPUSD 2025 1 2025 6 rsi 14 70 30"
+  putStrLn "  tempeh backtest EURUSD 2025 1 2025 3 ema  # uses defaults"
+  where
+    printProvider provider = do
+      putStrLn $ "  " ++ T.unpack (spKeyword provider) ++ " - " ++ T.unpack (spName provider)
+      putStrLn $ "    " ++ T.unpack (spDescription provider)
+
+-- Helpers
+availableKeywords :: StrategyRegistry -> String
+availableKeywords registry =
+  unwords $ map (T.unpack . spKeyword) (listAvailableStrategies registry)
+
+findProvider :: String -> StrategyRegistry -> Maybe StrategyProvider
+findProvider keyword registry =
+  let targets = listAvailableStrategies registry
+  in case filter (\p -> spKeyword p == T.pack keyword) targets of
+       (p:_) -> Just p
+       _ -> Nothing
 
 -- Parsing helpers
 parseInstrument :: String -> Maybe Instrument
