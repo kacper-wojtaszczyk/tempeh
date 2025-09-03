@@ -1,6 +1,6 @@
 # Tempeh Trading Bot
 
-A Haskell-based forex trading bot with backtesting and **live trading capabilities** built using **Ports & Adapters (Hexagonal) Architecture**. This project serves as both a Haskell learning exercise and a serious attempt at making me rich (results not guaranteed).
+A Haskell-based forex trading bot with backtesting and **live trading capabilities** built using **Ports & Adapters (Hexagonal) Architecture**. This project serves as both a Haskell learning exercise and a semi-serious attempt at making me rich
 
 I'm using Copilot extensively, at least in the initial stages. Feel free to comment on any hallucinations you notice.
 
