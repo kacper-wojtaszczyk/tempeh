@@ -16,6 +16,7 @@ import qualified Unit.Adapter.CsvDataProviderTest
 import qualified Unit.Adapter.BrokerDataProviderTest
 import qualified Unit.Adapter.RiskManagerTest
 import qualified Unit.Adapter.BacktestEngineTest
+import qualified Unit.Adapter.IG.PollingTest
 import qualified Unit.Util.ConfigTest
 import qualified Unit.Util.ErrorTest
 import qualified Unit.Util.LoggerTest
@@ -71,6 +72,7 @@ main = do
         , Unit.Adapter.BrokerDataProviderTest.tests
         , Unit.Adapter.RiskManagerTest.tests
         , Unit.Adapter.BacktestEngineTest.tests
+        , Unit.Adapter.IG.PollingTest.tests
         ]
       , testGroup "Util Layer"
         [ Unit.Util.ConfigTest.tests

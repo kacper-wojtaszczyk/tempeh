@@ -1,9 +1,9 @@
 # ADR-001: Architectural Improvements for Tempeh Trading Bot
 
-**Status:** Proposed → **Live Broker Integration Focus**  
-**Date:** 2025-09-02  
+**Status:** Partially Implemented  
+**Date:** 2025-09-03  
 **Deciders:** Development Team  
-**Technical Story:** Post-backtesting engine completion → **Prioritizing live tick data integration**
+**Technical Story:** Post-backtesting engine completion → Prioritizing live tick data integration
 
 ## Context
 
@@ -20,14 +20,6 @@ The following live-trading foundations are now implemented in code and covered b
 - ✅ Basic data quality reporting API (stub metrics)
 - ✅ Live trading orchestrator: tick grouping → candle generation (1-minute) → strategy signal
 - ✅ Centralized configuration with global/local config and environment overrides for tests/CI
-
-Testing note (updated):
-- The test suite now loads a dedicated testing-safe JSON config at `config/test.json` via a test override in `Util.Config`, ensuring the Demo broker is used without requiring env variables. The old env flags remain supported for backward compatibility.
-
-Remaining for live-data phase (in progress/planned):
-- 🔄 REST polling hardening and Lightstreamer streaming integration
-- 🔄 Scalable multi-instrument concurrent streaming
-- 📋 Account/position APIs and full order management
 
 ## Current Architecture Assessment
 
@@ -51,6 +43,7 @@ Remaining for live-data phase (in progress/planned):
 ### 1. Strategy Pattern Enhancement 🎯
 
 **Priority:** Medium  
+**Status:** Not Implemented  
 **Effort:** Medium  
 
 **Current State:** Good strategy registry with individual strategy execution  
@@ -82,6 +75,7 @@ data PortfolioStrategy = PortfolioStrategy
 ### 2. Performance & Memory Optimization 🚀
 
 **Priority:** High  
+**Status:** Not Implemented  
 **Effort:** High  
 
 **Current Issues:**
@@ -104,6 +98,7 @@ generateCandlesLazy :: [Tick] -> Producer Candle IO ()
 
 -- Vector-based price data for performance
 import qualified Data.Vector.Unboxed as V
+
 type PriceVector = V.Vector Double
 ```
 
@@ -118,7 +113,7 @@ type PriceVector = V.Vector Double
 ### 3. Enhanced Error Handling & Context 📋 ✅ **COMPLETED**
 
 **Priority:** High  
-**Effort:** Medium → **COMPLETED**  
+**Effort:** Medium  
 **Status:** ✅ **IMPLEMENTED** - Comprehensive error hierarchy with context and recovery strategies
 
 **Previous State:** Basic `Result` type with string errors  
@@ -200,10 +195,11 @@ This robust error handling foundation provides the reliability infrastructure ne
 
 ---
 
-### 4. Centralized Configuration Management ⚙️
+### 4. Centralized Configuration Management ⚙️ ✅ **COMPLETED**
 
 **Priority:** Medium  
 **Effort:** Medium  
+**Status:** ✅ **IMPLEMENTED** - Global/local JSON config with test overrides.
 
 **Current Issues:**
 - Configuration scattered across modules
@@ -240,7 +236,7 @@ validateConfig :: AppConfig -> Either [ValidationError] ()
 ### 5. Observability & Monitoring 📊 ✅ **COMPLETED**
 
 **Priority:** High → **Critical (Essential for live data)**  
-**Effort:** Medium → **COMPLETED**  
+**Effort:** Medium  
 **Status:** ✅ **IMPLEMENTED** - File-based logging system with component-specific logs
 
 **Previous State:** Basic console logging  
@@ -301,9 +297,10 @@ This foundational logging system provides the observability infrastructure neede
 ### 6. Testing Strategy Enhancements 🧪
 
 **Priority:** Medium  
+**Status:** 🔄 **PARTIALLY IMPLEMENTED**  
 **Effort:** Medium  
 
-**Current State:** Excellent testing diamond approach  
+**Current State:** Excellent testing diamond approach with property-based testing via `tasty-quickcheck`.  
 **Proposed Enhancements:**
 
 ```haskell
@@ -332,9 +329,10 @@ generateSyntheticMarketData :: MarketSimulator -> Gen [Candle]
 ### 7. Data Pipeline Architecture 🔄
 
 **Priority:** Medium → **High (Critical for live broker integration)**  
+**Status:** 🔄 **PARTIALLY IMPLEMENTED**  
 **Effort:** High  
 
-**Current State:** CSV-based with basic validation  
+**Current State:** CSV-based with basic validation. A `LiveDataProvider` exists with a basic REST polling loop for the IG broker.  
 **Proposed Enhancements for Live Integration:**
 
 ```haskell
@@ -384,6 +382,7 @@ Note: A basic live-broker data path is implemented via the LiveDataProvider inst
 ### 8. Concurrency & Parallelization ⚡
 
 **Priority:** Medium → **High (Essential for live data streams)**  
+**Status:** 🔄 **PARTIALLY IMPLEMENTED**  
 **Effort:** High  
 
 Focused on Live Data Requirements:
@@ -399,6 +398,7 @@ Current status: Basic concurrency in place (STM TVars for state/ticks, async pol
 ### 9. Domain Model Enrichment 🏗️
 
 **Priority:** Low  
+**Status:** Not Implemented  
 **Effort:** Medium  
 
 **Proposed Extensions:**
@@ -429,6 +429,7 @@ class MarketRegimeDetector m where
 ### 10. Live Trading Preparation 🎯
 
 **Priority:** Future (Critical for production) → **Partial Implementation (Live Data Only)**  
+**Status:** 🔄 **PARTIALLY IMPLEMENTED**  
 **Effort:** Very High → **High (Focused scope)**  
 
 **Phase 1: Live Data Integration (Current Focus)**
@@ -465,14 +466,14 @@ runLiveDataBacktest :: LiveDataManager -> StrategyInstance -> IO BacktestResult
 ## Implementation Roadmap
 
 ### Phase 1: Live Data Foundation (Immediate Priority)
-- [x] **Enhanced Error Handling (#3)** - ✅ COMPLETED - Critical for connection reliability
-- [x] **Observability & Monitoring (#5)** - ✅ COMPLETED - Essential for live data monitoring  
-- [x] **Configuration System (#4)** - ✅ COMPLETED - Global/local config with env overrides for tests/CI
-- [ ] **Data Pipeline Architecture (#7)** - Lightstreamer streaming and hardened polling pending
-- [ ] **Concurrency & Parallelization (#8)** - Scalable multi-instrument streaming pending
+- [x] **Enhanced Error Handling (#3)** - ✅ COMPLETED
+- [x] **Observability & Monitoring (#5)** - ✅ COMPLETED
+- [x] **Configuration System (#4)** - ✅ COMPLETED
+- [ ] **Data Pipeline Architecture (#7)** - 🔄 **IN PROGRESS** (Lightstreamer streaming and hardened polling pending)
+- [ ] **Concurrency & Parallelization (#8)** - 🔄 **IN PROGRESS** (Scalable multi-instrument streaming pending)
 
 ### Phase 2: Live Data Integration (Next 2-3 months)
-- [ ] **Live Trading Preparation (#10 - Phase 1)** - Broker API integration (expand streaming)
+- [ ] **Live Trading Preparation (#10 - Phase 1)** - 🔄 **IN PROGRESS** (Broker API integration needs hardening)
 - [ ] **Performance & Memory Optimization (#2)** - Handle real-time data efficiently
 - [ ] **Testing Improvements (#6)** - Live data integration testing
 

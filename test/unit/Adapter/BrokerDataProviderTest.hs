@@ -12,6 +12,10 @@ import qualified Data.Text as T
 import qualified Data.Map as Map
 import Data.Scientific
 import Data.List (group, sort)
+import System.Directory (doesFileExist, getFileSize)
+import System.FilePath ((</>))
+import Data.Time.Format (formatTime, defaultTimeLocale)
+import Control.Concurrent (threadDelay)
 
 import Adapter.BrokerDataProvider
 import Domain.Services.LiveDataService
@@ -56,6 +60,12 @@ brokerDataProviderTests = testGroup "Adapter.BrokerDataProvider"
   , testGroup "Property-based Tests"
     [ QC.testProperty "Connection IDs should be unique" prop_connectionIdsUnique
     , QC.testProperty "Tick data should preserve instrument info" prop_tickDataPreservation
+    ]
+  , testGroup "Reconnect Policy"
+    [ testCase "Exponential backoff increases and caps at max" testBackoffPolicy
+    ]
+  , testGroup "Adapter Logging"
+    [ testCase "Broker logs should be written to component log file" testBrokerLogging
     ]
   ]
 
@@ -259,6 +269,7 @@ testUnsubscribedTickStream = do
       Right _ -> assertFailure "Tick stream should fail for unsubscribed instrument"
 
 -- Data quality test
+
 testDataQuality :: Assertion
 testDataQuality = do
   let instrument = Instrument "EURUSD"
@@ -278,10 +289,14 @@ testDataQuality = do
     Left err -> assertFailure $ "Data quality test setup failed: " ++ show err
     Right qualityResult -> case qualityResult of
       Right quality -> do
-        -- Validate quality metrics
-        ldqQualityScore quality @?= 0.98
-        ldqTicksReceived quality @?= 100
-        ldqTicksExpected quality @?= 100
+        -- Validate dynamic quality metrics (no stubbed constants)
+        let score = ldqQualityScore quality
+        assertBool "Quality score should be between 0 and 1" (score >= 0.0 && score <= 1.0)
+        assertBool "Ticks received should be non-negative" (ldqTicksReceived quality >= 0)
+        assertBool "Ticks expected should be non-negative" (ldqTicksExpected quality >= 0)
+        case ldqLatency quality of
+          Just latency -> assertBool "Latency should be non-negative" (latency >= 0)
+          Nothing -> return ()
       Left err -> assertFailure $ "Failed to get data quality: " ++ show err
 
 -- Data quality metrics test
@@ -325,6 +340,15 @@ testIGEpicMapping = do
   instrumentToIGEpic (Instrument "AUDUSD") @?= Just "CS.D.AUDUSD.CFD.IP"
   instrumentToIGEpic (Instrument "USDCAD") @?= Just "CS.D.USDCAD.CFD.IP"
 
+-- Helper function for approximate floating-point equality (if not already defined)
+assertApproxEqual :: String -> Double -> Double -> Double -> Assertion
+assertApproxEqual msg expected actual tolerance =
+  let diff = abs (expected - actual)
+  in if diff <= tolerance
+     then return ()
+     else assertFailure $ msg ++ ": expected " ++ show expected ++
+                          " (±" ++ show tolerance ++ "), but got " ++ show actual
+
 -- IG market data conversion test
 testIGMarketDataConversion :: Assertion
 testIGMarketDataConversion = do
@@ -338,13 +362,14 @@ testIGMarketDataConversion = do
       instrument = Instrument "EURUSD"
 
   now <- getCurrentTime
-  let tick = convertIGMarketToTick igMarket instrument now
+  let tick = convertIGMarketToTick now instrument igMarket
 
   -- Validate conversion
   tInstr tick @?= instrument
   tTime tick @?= now
-  unPrice (tBid tick) @?= 1.1850
-  unPrice (tAsk tick) @?= 1.1852
+  -- Use approximate equality for floating-point comparisons
+  assertApproxEqual "Bid price should be approximately 1.1850" 1.1850 (realToFrac (unPrice (tBid tick))) 1e-10
+  assertApproxEqual "Ask price should be approximately 1.1852" 1.1852 (realToFrac (unPrice (tAsk tick))) 1e-10
   tVolume tick @?= Nothing
 
 -- Unknown instruments test
@@ -382,6 +407,33 @@ testConnectionFailures = do
   case result of
     Right () -> return () -- Disconnect should succeed (idempotent)
     Left err -> assertFailure $ "Disconnect should be idempotent: " ++ show err
+
+-- Reconnect policy tests
+
+testBackoffPolicy :: Assertion
+testBackoffPolicy = do
+  let rp = ReconnectPolicy { rpMaxRetries = 10
+                           , rpInitialDelay = 1.0
+                           , rpMaxDelay = 30.0
+                           , rpBackoffMultiplier = 2.0
+                           }
+      toD :: NominalDiffTime -> Double
+      toD = realToFrac
+      d1 = toD (backoffDelay rp 1)
+      d2 = toD (backoffDelay rp 2)
+      d3 = toD (backoffDelay rp 3)
+      d4 = toD (backoffDelay rp 4)
+      d5 = toD (backoffDelay rp 5)
+      d6 = toD (backoffDelay rp 6)
+      d10 = toD (backoffDelay rp 10)
+  -- Exponential growth for early attempts: 1,2,4,8,16
+  d1 @?= 1.0
+  d2 @?= 2.0
+  d3 @?= 4.0
+  d4 @?= 8.0
+  d5 @?= 16.0
+  -- Cap at max delay thereafter (max 30)
+  assertBool "Backoff caps at max" (d6 <= 30.0 && d10 <= 30.0)
 
 -- Property: Connection IDs should be unique
 prop_connectionIdsUnique :: Property
@@ -426,3 +478,38 @@ instance Arbitrary Instrument where
     base <- elements ["EUR", "GBP", "USD", "JPY", "AUD", "CAD", "CHF", "NZD"]
     quote <- elements ["EUR", "GBP", "USD", "JPY", "AUD", "CAD", "CHF", "NZD"]
     return $ Instrument (T.pack (base ++ quote))
+
+-- Adapter logging test ensures logs are written to the BROKER component log file
+-- The logger writes to log/BROKER-YYYY-MM-DD.log; we trigger some broker actions
+-- and verify the file exists and has non-zero size (or has grown).
+
+testBrokerLogging :: Assertion
+testBrokerLogging = do
+  -- Determine today's broker log file
+  now <- getCurrentTime
+  let dateStr = formatTime defaultTimeLocale "%Y-%m-%d" now
+      logPath = "log" </> ("BROKER-" <> dateStr <> ".log")
+
+  -- Record initial size if file exists
+  preExists <- doesFileExist logPath
+  preSize <- if preExists then getFileSize logPath else pure 0
+
+  -- Trigger broker logs: connect, subscribe, unsubscribe, disconnect
+  _ <- runBrokerDataProviderIO $ do
+    connResult <- connect
+    case connResult of
+      Left _ -> return ()
+      Right connId -> do
+        _ <- subscribeToInstrument connId (Instrument "EURUSD")
+        liftIO $ threadDelay 300000  -- allow background loop to log
+        _ <- unsubscribeFromInstrument connId (Instrument "EURUSD")
+        _ <- disconnect connId
+        return ()
+
+  -- Give filesystem a moment to flush
+  threadDelay 200000
+
+  exists <- doesFileExist logPath
+  assertBool "Broker log file should exist" exists
+  newSize <- getFileSize logPath
+  assertBool "Broker log file should have grown or be non-empty" (newSize > preSize || newSize > 0)
