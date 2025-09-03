@@ -1,59 +1,79 @@
 # Tempeh Trading Bot
 
-A Haskell-based forex trading bot with backtesting capabilities built using **Ports & Adapters (Hexagonal) Architecture**. This project serves as both a Haskell learning exercise and a serious attempt at making me rich (results not guaranteed).
+A Haskell-based forex trading bot with backtesting and **live trading capabilities** built using **Ports & Adapters (Hexagonal) Architecture**. This project serves as both a Haskell learning exercise and a serious attempt at making me rich (results not guaranteed).
 
 I'm using Copilot extensively, at least in the initial stages. Feel free to comment on any hallucinations you notice.
 
 ## 🚧 Project Status
 
-**Current Phase: Backtesting Engine (95% Complete)**
+**Current Phase: Live Trading Foundation (Phase 1) Completed → Market Data Streaming (Next)**
 
-This is a **work-in-progress** project currently focused on building a robust backtesting foundation before moving to live trading capabilities. The backtesting engine is nearly complete and battle-tested with historical forex data.
+This project has successfully evolved from backtesting to the **live trading foundation**. The backtesting engine is complete and battle-tested, and we now have the core live trading components integrated and working end-to-end in Demo mode, with streaming and orders as the next milestones.
 
 ### ✅ Completed Features
+
+#### Backtesting Engine (100% Complete)
 - Core backtesting engine with hexagonal architecture
-- EMA Crossover and RSI Mean Reversion strategies
+- EMA Crossover, RSI Mean Reversion, and Bollinger Bands strategies
 - Comprehensive test suite (unit, integration, e2e)
 - CSV data ingestion from histdata.com
 - Detailed performance reporting and analytics
 - Risk management and position sizing
 - Configurable strategy parameters via CLI
 
-### 🔄 Current Work
-- Performance optimizations for large datasets
-- Additional technical indicators and strategies
-- Enhanced reporting with drawdown analysis
-- Strategy parameter optimization tools
+#### Live Trading Foundation (Phase 1)
+- 🔐 IG Auth & Session: REST API authentication and logout implemented (demo verified)
+- 🔧 Configuration Management: Global/local config with secure credentials; test override config
+- 📡 Connection & Subscriptions: STM-based connection status and per-instrument tick buffers
+- 🧬 Live Orchestrator Pipeline: Ticks → 1-minute candles → strategy signal generation
+- 📊 Data Quality API: Basic metrics available (stub values for now)
+- 🛠️ CLI Live Commands: Live mode wired to orchestrator and broker adapter
 
-### 🎯 Future Plans: Live Trading
-- Real-time data feeds integration
-- Broker API adapters (OANDA, Interactive Brokers)
-- Live execution engine with order management
-- Real-time monitoring and alerting
-- Paper trading mode for strategy validation
+Notes:
+- The test suite uses a testing-safe configuration file (Demo broker) loaded from `config/test.json`.
+
+### 🔄 Current Work: Market Data Streaming
+- Harden REST-based tick polling (retry, rate limiting, metrics)
+- Implement Lightstreamer WebSocket streaming for real-time market data
+- Scale multi-instrument concurrency and backpressure handling
+- Live candle generation monitoring and metrics
+
+### 🎯 Future Plans
+- Order management and position handling via IG deals API
+- Account and positions APIs
+- Multi-broker support (OANDA, Interactive Brokers)
+- Real-time monitoring dashboard
+- Advanced portfolio management across strategies
+- Performance analytics for live trading
 
 ## 🏗️ Architecture
 
 The project follows clean architecture principles with clear separation of concerns across three layers:
 
 - **Domain Layer**: Core business logic including types, strategies, and services
-- **Application Layer**: Orchestration, CLI interface, and reporting services  
-- **Adapters Layer**: Infrastructure components for data loading, risk management, and report generation
+- **Application Layer**: Orchestration, CLI interface, live trading, and reporting services  
+- **Adapters Layer**: Infrastructure for data loading, broker connectivity, risk management, and reporting
 
 ## ✨ Features
 
-- **🔄 Multiple Trading Strategies**: EMA Crossover, RSI Mean Reversion, and Bollinger Bands with parameterizable settings
-- **⚙️ Configurable Parameters**: Customize strategy parameters directly from the command line
-- **📊 Tick Data Processing**: Converts raw tick data to OHLC candles for strategy analysis
-- **⚡ Pure Functional Backtesting**: Immutable, composable backtesting engine (time machine for seeing how broke I would have been)
-- **📅 Date Range Filtering**: Run backtests on specific time periods
-- **📋 Comprehensive Reporting**: Detailed P&L analysis, trade history, and performance metrics
-- **🛡️ Risk Management**: Built-in position sizing and risk controls
-- **📝 Structured Logging**: File-based logging system with component-specific log files and clean console output
-- **🧪 Extensive Testing**: Tests following the Testing Diamond approach
-- **🏗️ Clean Architecture**: Hexagonal architecture ready for live trading extensions
+### Trading Strategies
+- 🔄 EMA Crossover: Trend-following strategy with configurable fast/slow periods
+- 📈 RSI Mean Reversion: Counter-trend strategy with overbought/oversold levels
+- 📉 Bollinger Bands: Volatility-based mean reversion strategy
 
-## 📊 Available Strategies
+### Trading Modes
+- 📊 Backtesting Mode: Historical data analysis with comprehensive reporting
+- 🔴 Live Trading Mode: Live trading foundation implemented; streaming/orders forthcoming
+- ⚙️ Configurable Parameters: Customize strategy parameters via command line
+
+### Infrastructure
+- 🏗️ Hexagonal Architecture: Clean separation of concerns with ports and adapters
+- 🛡️ Type Safety: Strong typing throughout with comprehensive error handling
+- 🔧 Configuration System: Global/local config, plus a dedicated test config override
+- 📝 Comprehensive Logging: Structured logging with component-specific files
+- 🧪 Extensive Testing: Unit, integration, and end-to-end test coverage
+
+## 📈 Available Strategies
 
 ### EMA Crossover (Trend Following)
 - **Parameters**: `ema [fast] [slow] [threshold]`
@@ -73,152 +93,60 @@ The project follows clean architecture principles with clear separation of conce
 - **Logic**: Buy when price touches lower band (oversold), sell when price touches upper band (overbought)
 - **Best For**: Range-bound markets with mean-reverting price action
 
-## 📈 Strategy Comparison Examples
+## 🚀 Getting Started
 
+### Prerequisites
+- GHC 9.6.7+ and Cabal
+- IG trading account (demo or live) with API access
+
+### Configuration
+1. Copy the local config template:
+   ```bash
+   cp config/local.json.template config/local.json
+   ```
+2. Add your IG credentials to `config/local.json`.
+3. For tests/CI, no env flags are required; the suite loads `config/test.json` automatically.
+
+### Usage
+
+#### Backtesting
 ```bash
-# Test different EMA sensitivities on the same data
-cabal run tempeh backtest EURUSD 2025 1 2025 3 ema 5 20 0.0001    # Fast
-cabal run tempeh backtest EURUSD 2025 1 2025 3 ema 12 26 0.0005   # Standard
-cabal run tempeh backtest EURUSD 2025 1 2025 3 ema 21 50 0.001    # Slow
-
-# Compare trend-following vs mean-reversion on the same period  
-cabal run tempeh backtest GBPUSD 2025 7 2025 8 ema 12 26 0.0005   # Trend following
-cabal run tempeh backtest GBPUSD 2025 7 2025 8 rsi 14 70 30       # Mean reversion
-
-# Test Bollinger Bands mean reversion strategy
-cabal run tempeh backtest GBPUSD 2025 7 2025 8 bb 20 2.0 0.0001   # Bollinger Bands
+cabal run tempeh -- backtest EURUSD 2025 1 2025 3 ema 5 20 0.0001
+cabal run tempeh -- backtest GBPUSD 2025 1 2025 6 rsi 14 70 30
+cabal run tempeh -- backtest EURUSD 2025 1 2025 3 bb 20 2.0 0.0001
 ```
+
+#### Live Trading
+```bash
+cabal run tempeh -- live EURUSD ema 5 20 0.0001
+cabal run tempeh -- live GBPUSD rsi 14 70 30
+cabal run tempeh -- live EURUSD bb 20 2.0 0.0001
+```
+
+Demo/real mode:
+- Tests and CI use `config/test.json` (Demo broker, no network creds).
+- For real runs, ensure `config/local.json` includes valid credentials.
 
 ## 📊 Data Requirements
 
 Backtesting data can be sourced from [histdata.com](https://www.histdata.com/). The application expects CSV files with the format:
 
-- **Filename**: `DAT_ASCII_[INSTRUMENT]_T_[YYYYMM].csv`
-- **CSV Structure**: `datetime,bid_price,ask_price,volume`
-- **Datetime Format**: `YYYYMMDD HHMMSSTTT`
+- Filename: `DAT_ASCII_[INSTRUMENT]_T_[YYYYMM].csv`
+- CSV Structure: `datetime,bid_price,ask_price,volume`
+- Datetime Format: `YYYYMMDD HHMMSSTTT`
 
 Place CSV files in the `data/backtesting/` directory.
 
-## 📝 Logging System
+## 🔗 Live Trading Requirements
 
-The application features a comprehensive structured logging system that separates technical logs from user-facing output:
+For live trading, you need:
+- IG Trading Account: Demo or live account with API access
+- API Key: Generated from IG's developer portal
+- Valid Credentials: Username, password, and account ID
 
-### 🎯 Clean Output Separation
-- **Console Output**: Clean, user-friendly backtest results and summaries
-- **Log Files**: Detailed application logs stored in the `log/` directory
+The system currently supports IG's demo environment and includes a Demo broker mode for safe testing. Streaming via Lightstreamer and order management are planned next.
 
-### 📁 Log File Organization
-Each backtest run creates a dedicated log file with the naming pattern:
-```
-log/backtest-{INSTRUMENT}-{STRATEGY}-{TIMESTAMP}.log
-```
-
-**Example log files:**
-```
-log/backtest-EURUSD-rsi-20250902-134838.log
-log/backtest-GBPUSD-ema-20250902-141225.log
-```
-
-### 🔍 Log Content Structure
-Log entries include structured information for debugging and monitoring:
-```
-2025-09-02 13:48:38 [Info] (backtest-EURUSD-rsi)  Loading ticks for EURUSD from 2025-1 to 2025-1
-2025-09-02 13:48:38 [Debug] (backtest-EURUSD-rsi)  Successfully loaded 125,847 ticks
-2025-09-02 13:48:39 [Info] (backtest-EURUSD-rsi)  Executing backtest with 1,440 candles
-```
-
-**Each log entry contains:**
-- **Timestamp**: Precise execution time
-- **Log Level**: Debug, Info, Warn, Error
-- **Component**: Which part of the system generated the log
-- **Message**: Detailed information about the operation
-
-### 💡 Benefits
-- **Clean User Experience**: No technical logs cluttering console output
-- **Detailed Debugging**: Full application flow captured in persistent files
-- **Component Tracing**: Easy identification of which system component generated each log
-- **Production Ready**: Essential for live trading monitoring and troubleshooting
-
-## 🧪 Test Suite
-
-The project uses a **Testing Diamond** approach with comprehensive test coverage:
-- **End-to-End Tests**: Complete workflows with real data flow
-- **Integration Tests**: Component interactions and data flow
-- **Unit Tests**: Critical business logic validation
-
-```bash
-# Run all tests
-cabal test
-
-# Run with verbose output
-cabal test --test-show-details=always
-```
-
-## 🔧 Development
-
-```bash
-# Build the project
-cabal build
-
-# Run tests
-cabal test
-
-# Clean build artifacts
-cabal clean
-```
-
-### Adding New Strategies
-1. Implement the strategy in `src/Strategy/`
-2. Add strategy parameters to `Domain.Services.BacktestService`
-3. Update `Adapter.StrategyFactory` to handle the new strategy
-4. Add CLI parsing support in `Application.CLI`
-5. Add tests in the appropriate test directories
-
-## 📋 Command Reference
-
-### Full Command Syntax
-```
-tempeh backtest <instrument> <start_year> <start_month> <end_year> <end_month> <strategy> [params]
-```
-
-### Parameters
-- **instrument**: Currency pair (EURUSD, GBPUSD, USDJPY, etc.)
-- **start_year/month**: Start date (e.g., 2025 1)
-- **end_year/month**: End date (e.g., 2025 3)
-- **strategy**: `ema`, `rsi`, or `bb` with optional parameters
-
-### EMA Parameters (optional)
-- **fast**: Fast EMA period (default: 5)
-- **slow**: Slow EMA period (default: 20)
-- **threshold**: Signal threshold in pips (default: 0.0001)
-
-### RSI Parameters (optional)
-- **period**: RSI calculation period (default: 14)
-- **overbought**: Overbought level (default: 70)
-- **oversold**: Oversold level (default: 30)
-
-### Bollinger Bands Parameters (optional)
-- **period**: Bollinger Bands period (default: 20)
-- **deviation**: Standard deviation multiplier (default: 2)
-- **threshold**: Signal threshold in pips (default: 0.0001)
-
-## 🎯 Performance
-
-The backtesting engine can process millions of ticks and generate detailed performance metrics including win rates, profit factors, and drawdown analysis.
-
-Example output:
-```
-=== TEMPEH BACKTEST ===
-Instrument: EURUSD
-Strategy: EmaCrossParams {ecpFastPeriod = 12, ecpSlowPeriod = 26, ecpSignalThreshold = 5.0e-4}
-
-=== BACKTEST RESULTS ===
-Final Balance: $10,245.80
-Total P&L: $245.80
-Total Trades: 23
-```
-
-## 📝 License
+## 📄 License
 
 This project is licensed under the terms specified in the LICENSE file.
 

@@ -11,6 +11,24 @@ Following the successful completion of the backtesting engine (95% complete), we
 
 The current hexagonal architecture provides a solid foundation, but we need to prioritize improvements that directly support real-time data integration and the infrastructure required for live broker connectivity.
 
+## Status Update (2025-09-03)
+
+The following live-trading foundations are now implemented in code and covered by tests/E2E scenarios:
+- ✅ Broker connection abstraction with IG and Demo support (safe Demo fallback)
+- ✅ IG REST authentication and logout flows (implemented; disabled in tests via demo mode)
+- ✅ Subscription registry and per-instrument tick buffers (STM-based)
+- ✅ Basic data quality reporting API (stub metrics)
+- ✅ Live trading orchestrator: tick grouping → candle generation (1-minute) → strategy signal
+- ✅ Centralized configuration with global/local config and environment overrides for tests/CI
+
+Testing note (updated):
+- The test suite now loads a dedicated testing-safe JSON config at `config/test.json` via a test override in `Util.Config`, ensuring the Demo broker is used without requiring env variables. The old env flags remain supported for backward compatibility.
+
+Remaining for live-data phase (in progress/planned):
+- 🔄 REST polling hardening and Lightstreamer streaming integration
+- 🔄 Scalable multi-instrument concurrent streaming
+- 📋 Account/position APIs and full order management
+
 ## Current Architecture Assessment
 
 ### Strengths ✅
@@ -212,10 +230,10 @@ validateConfig :: AppConfig -> Either [ValidationError] ()
 ```
 
 **Implementation:**
-- YAML/JSON configuration files per environment
-- Environment variable overrides
+- JSON configuration files with global/local split
+- Environment variable overrides (TEMPEH_TEST_MODE, TEMPEH_CONFIG_GLOBAL_ONLY)
 - Configuration validation at startup
-- Hot-reloading capabilities for non-critical settings
+- Hooks for hot-reloading non-critical settings
 
 ---
 
@@ -359,6 +377,8 @@ data ConnectionStatus = Connected | Disconnected | Reconnecting | Error Text
   deriving (Show, Eq)
 ```
 
+Note: A basic live-broker data path is implemented via the LiveDataProvider instance in Adapter.BrokerDataProvider with per-instrument tick buffers and an initial REST polling loop. Lightstreamer streaming is planned.
+
 ---
 
 ### 8. Concurrency & Parallelization ⚡
@@ -366,39 +386,13 @@ data ConnectionStatus = Connected | Disconnected | Reconnecting | Error Text
 **Priority:** Medium → **High (Essential for live data streams)**  
 **Effort:** High  
 
-**Focused on Live Data Requirements:**
+Focused on Live Data Requirements:
 - **Real-time tick data processing**
 - **Concurrent broker connections**
 - **Thread-safe live data handling**
 - **Background connection monitoring**
 
-**Proposed Architecture:**
-
-```haskell
--- Live data streaming manager
-data LiveDataManager = LiveDataManager
-  { ldmConnections :: TVar (Map BrokerType Connection)
-  , ldmSubscriptions :: TVar (Map Instrument [Connection])
-  , ldmTickBuffer :: TVar (Map Instrument (TBQueue Tick))
-  , ldmHealthMonitor :: Async ()
-  }
-
--- Concurrent tick processing
-processTicks :: LiveDataManager -> Instrument -> (Tick -> IO ()) -> IO ()
-processTicksBatch :: LiveDataManager -> Instrument -> ([Tick] -> IO ()) -> IO ()
-
--- Connection health monitoring
-monitorConnectionHealth :: LiveDataManager -> IO ()
-handleReconnection :: Connection -> IO (Either ReconnectionError Connection)
-
--- Thread-safe broker operations
-data BrokerOperations m = BrokerOperations
-  { boConnect :: BrokerConfig -> m Connection
-  , boSubscribe :: Connection -> [Instrument] -> m ()
-  , boGetTicks :: Connection -> Instrument -> m [Tick]
-  , boHealthCheck :: Connection -> m ConnectionStatus
-  }
-```
+Current status: Basic concurrency in place (STM TVars for state/ticks, async polling); scalable multi-instrument streaming remains planned.
 
 ---
 
@@ -471,14 +465,14 @@ runLiveDataBacktest :: LiveDataManager -> StrategyInstance -> IO BacktestResult
 ## Implementation Roadmap
 
 ### Phase 1: Live Data Foundation (Immediate Priority)
-- [x] **Enhanced Error Handling (#3)** - ✅ **COMPLETED** - Critical for connection reliability
-- [x] **Observability & Monitoring (#5)** - ✅ **COMPLETED** - Essential for live data monitoring  
-- [ ] **Data Pipeline Architecture (#7)** - Broker integration infrastructure
-- [ ] **Concurrency & Parallelization (#8)** - Real-time data streaming
-- [ ] **Configuration Management (#4)** - Broker credentials and settings
+- [x] **Enhanced Error Handling (#3)** - ✅ COMPLETED - Critical for connection reliability
+- [x] **Observability & Monitoring (#5)** - ✅ COMPLETED - Essential for live data monitoring  
+- [x] **Configuration System (#4)** - ✅ COMPLETED - Global/local config with env overrides for tests/CI
+- [ ] **Data Pipeline Architecture (#7)** - Lightstreamer streaming and hardened polling pending
+- [ ] **Concurrency & Parallelization (#8)** - Scalable multi-instrument streaming pending
 
 ### Phase 2: Live Data Integration (Next 2-3 months)
-- [ ] **Live Trading Preparation (#10 - Phase 1)** - Broker API integration
+- [ ] **Live Trading Preparation (#10 - Phase 1)** - Broker API integration (expand streaming)
 - [ ] **Performance & Memory Optimization (#2)** - Handle real-time data efficiently
 - [ ] **Testing Improvements (#6)** - Live data integration testing
 
@@ -494,13 +488,13 @@ runLiveDataBacktest :: LiveDataManager -> StrategyInstance -> IO BacktestResult
 ## Broker Integration Priorities
 
 ### Immediate (Next 2 weeks)
-1. **Enhanced Error Handling** - ✅ **COMPLETED** - Robust connection error handling
-2. **Basic Observability** - ✅ **COMPLETED** - Connection monitoring and logging
-3. **Configuration System** - Secure credential management
+1. **Enhanced Error Handling** - ✅ COMPLETED - Robust connection error handling
+2. **Basic Observability** - ✅ COMPLETED - Connection monitoring and logging
+3. **Configuration System** - ✅ COMPLETED - Global/local config + env overrides (tests default to Demo mode)
 
 ### Short Term (Next month)
-1. **Data Pipeline Refactoring** - Add broker data source support
-2. **Concurrency Infrastructure** - Real-time tick streaming
+1. **Data Pipeline Refactoring** - Add broker data source support (Lightstreamer)
+2. **Concurrency Infrastructure** - Real-time tick streaming scale-out
 3. **Connection Management** - Automatic reconnection and health monitoring
 
 ### Medium Term (2-3 months)
@@ -560,4 +554,3 @@ data IGError =
   | APIError Int Text   -- HTTP status + message
   deriving (Show, Eq)
 ```
-

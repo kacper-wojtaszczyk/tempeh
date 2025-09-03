@@ -112,3 +112,42 @@ data RiskLimits = RiskLimits
   , rlMaxPositionSize :: Scientific
   , rlStopLossThreshold :: Scientific
   } deriving (Show, Eq, Generic)
+
+-- Live data streaming types
+data ConnectionId = ConnectionId Text
+  deriving (Show, Eq, Ord, Generic)
+
+instance JSON.ToJSON ConnectionId where
+  toJSON (ConnectionId cid) = JSON.toJSON cid
+
+instance JSON.FromJSON ConnectionId where
+  parseJSON v = ConnectionId <$> JSON.parseJSON v
+
+data ConnectionStatus =
+    Connected UTCTime
+  | Disconnected
+  | Connecting
+  | Reconnecting Int  -- retry attempt
+  | Failed Text       -- error reason
+  deriving (Show, Eq, Generic)
+
+instance JSON.ToJSON ConnectionStatus where
+  toJSON = JSON.genericToJSON JSON.defaultOptions
+
+instance JSON.FromJSON ConnectionStatus where
+  parseJSON = JSON.genericParseJSON JSON.defaultOptions
+
+-- Live data quality metrics
+data LiveDataQuality = LiveDataQuality
+  { ldqTicksReceived :: Int
+  , ldqTicksExpected :: Int
+  , ldqLatency :: Maybe Double  -- milliseconds
+  , ldqLastTickTime :: Maybe UTCTime
+  , ldqQualityScore :: Double  -- 0.0 to 1.0
+  } deriving (Show, Eq, Generic)
+
+instance JSON.ToJSON LiveDataQuality where
+  toJSON = JSON.genericToJSON JSON.defaultOptions
+
+instance JSON.FromJSON LiveDataQuality where
+  parseJSON = JSON.genericParseJSON JSON.defaultOptions

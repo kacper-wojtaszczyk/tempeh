@@ -23,10 +23,15 @@ cabal.project.local~
 .HTF/
 .ghc.environment.*
 
+# Configuration files with secrets
+config/local.json
+
+# Log files
+log/*
+
 #app
 
 data/backtesting/*
-log/*
 
 #intellij
 .idea/

@@ -1,0 +1,34 @@
+{
+  "acDataDirectory": "data/backtesting",
+  "acLogging": {
+    "lcLevel": "Debug",
+    "lcOutputFile": null,
+    "lcEnableConsole": true,
+    "lcRotationSize": 50
+  },
+  "acBroker": {
+    "bcBrokerType": "Demo",
+    "bcEnvironment": "DemoEnv",
+    "bcBaseUrl": null,
+    "bcApiKey": null,
+    "bcUsername": null,
+    "bcPassword": null,
+    "bcAccountId": null,
+    "bcConnectTimeout": 5,
+    "bcReadTimeout": 10,
+    "bcReconnectPolicy": {
+      "maxRetries": 1,
+      "initialDelaySeconds": 0.5,
+      "maxDelaySeconds": 2.0,
+      "backoffMultiplier": 2.0
+    }
+  },
+  "acLiveTrading": {
+    "tickBufferSize": 1000,
+    "maxTicksPerSecond": 100,
+    "heartbeatIntervalSeconds": 5.0,
+    "dataQualityThreshold": 0.9,
+    "enablePaperTrading": true
+  }
+}
+

@@ -1,0 +1,33 @@
+{
+  "acDataDirectory": "data/backtesting",
+  "acLogging": {
+    "lcLevel": "Debug",
+    "lcOutputFile": "log/live-trading.log",
+    "lcEnableConsole": true,
+    "lcRotationSize": 100
+  },
+  "acBroker": {
+    "bcBrokerType": "IG",
+    "bcEnvironment": "DemoEnv",
+    "bcBaseUrl": "https://demo-api.ig.com/gateway/deal",
+    "bcApiKey": "YOUR_IG_API_KEY_HERE",
+    "bcUsername": "YOUR_IG_USERNAME_HERE",
+    "bcPassword": "YOUR_IG_PASSWORD_HERE",
+    "bcAccountId": "YOUR_IG_ACCOUNT_ID_HERE",
+    "bcConnectTimeout": 30,
+    "bcReadTimeout": 60,
+    "bcReconnectPolicy": {
+      "maxRetries": 5,
+      "initialDelaySeconds": 1.0,
+      "maxDelaySeconds": 30.0,
+      "backoffMultiplier": 2.0
+    }
+  },
+  "acLiveTrading": {
+    "tickBufferSize": 10000,
+    "maxTicksPerSecond": 1000,
+    "heartbeatIntervalSeconds": 30.0,
+    "dataQualityThreshold": 0.95,
+    "enablePaperTrading": true
+  }
+}
