@@ -169,12 +169,12 @@ writeLogEventToFile filePath event = do
     TIO.hPutStrLn handle formatted
     hFlush handle
 
--- New: Generate standardized log file names
+-- New: Generate standardized log file names (daily grouping)
 generateLogFileName :: ComponentName -> IO FilePath
 generateLogFileName (ComponentName comp) = do
   now <- getCurrentTime
-  let timestamp = formatTime defaultTimeLocale "%Y%m%d-%H%M%S" now
-      fileName = T.unpack comp <> "-" <> timestamp <> ".log"
+  let dateStamp = formatTime defaultTimeLocale "%Y-%m-%d" now
+      fileName = T.unpack comp <> "-" <> dateStamp <> ".log"
   return $ "log" </> fileName
 
 -- Helper function to extract directory from file path

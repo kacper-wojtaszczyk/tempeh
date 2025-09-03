@@ -7,12 +7,15 @@ import qualified Unit.Strategy.EmaCross.IndicatorsTest
 import qualified Unit.Strategy.EmaCross.StrategyTest
 import qualified Unit.Strategy.BollingerBands.IndicatorsTest
 import qualified Unit.Strategy.BollingerBands.StrategyTest
+import qualified Unit.Strategy.RSI.IndicatorsTest
+import qualified Unit.Strategy.RSI.StrategyTest
 import qualified Unit.Application.CLITest
 import qualified Unit.Adapter.CsvDataProviderTest
 import qualified Unit.Adapter.RiskManagerTest
 import qualified Unit.Adapter.BacktestEngineTest
 import qualified Unit.Util.ConfigTest
 import qualified Unit.Util.ErrorTest
+import qualified Unit.Util.LoggerTest
 
 -- Integration Tests (Many - Component interactions, bulk of coverage)
 import qualified Integration.BacktestIntegrationTest
@@ -40,6 +43,8 @@ main = defaultMain $ testGroup "Tempeh Test Suite (Testing Diamond)"
       , Unit.Strategy.EmaCross.StrategyTest.tests
       , Unit.Strategy.BollingerBands.IndicatorsTest.tests
       , Unit.Strategy.BollingerBands.StrategyTest.tests
+      , Unit.Strategy.RSI.IndicatorsTest.tests
+      , Unit.Strategy.RSI.StrategyTest.tests
       ]
     , testGroup "Application Layer"
       [ Unit.Application.CLITest.tests
@@ -52,6 +57,7 @@ main = defaultMain $ testGroup "Tempeh Test Suite (Testing Diamond)"
     , testGroup "Util Layer"
       [ Unit.Util.ConfigTest.tests
       , Unit.Util.ErrorTest.tests
+      , Unit.Util.LoggerTest.tests
       ]
     ]
   ]

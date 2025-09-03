@@ -22,6 +22,7 @@ import Util.Config (defaultAppConfig, acDataDirectory)
 import Application.Strategy.Factory (initializeStrategyRegistry)
 import Application.Strategy.Types (StrategyParameters(..), StrategyProvider(..))
 import Application.Strategy.Registry (StrategyRegistry, findStrategyByKeyword)
+import Util.Logger (emptyLogContext)  -- Add missing import
 
 -- E2E tests for complete application workflows
 tests :: TestTree
@@ -203,33 +204,32 @@ testCliParsingBehaviorBaseline = do
     InvalidCommand _ -> pure ()
     _ -> assertFailure "Expected InvalidCommand for bad strategy"
 
--- Helper functions for E2E test setup
+-- Helper functions for E2E test setup with permanent fixtures
 createTestDataEnvironment :: FilePath -> IO ()
 createTestDataEnvironment dir = do
+  -- The permanent test fixtures are already in place at test/fixtures/e2e/
+  -- This function now just ensures the directory exists
   createDirectoryIfMissing True dir
-  -- Create minimal test CSV data
-  let csvContent = T.unlines
-        [ T.pack "20250101 000000000,1.08500,1.08520,0"
-        , T.pack "20250101 000100000,1.08505,1.08525,0"
-        , T.pack "20250101 000200000,1.08510,1.08530,0"
-        , T.pack "20250101 000300000,1.08515,1.08535,0"
-        , T.pack "20250101 000400000,1.08520,1.08540,0"
-        , T.pack "20250101 000500000,1.08525,1.08545,0"
-        ]
-  TIO.writeFile (dir </> "DAT_ASCII_EURUSD_T_202501.csv") csvContent
+  -- No need to create minimal data - we use permanent fixtures with real market data
 
 cleanupTestEnvironment :: FilePath -> IO ()
 cleanupTestEnvironment dir = do
-  catch (removeDirectoryRecursive dir) (\(_ :: IOException) -> return ())
+  -- No cleanup needed since we're using permanent test fixtures
+  return ()
 
--- Helper function to run backtest E2E
+-- Helper function to run backtest E2E with permanent test data fixtures
 runBacktestE2E :: Instrument -> DateRange -> StrategyParameters -> IO (Result BacktestResult)
 runBacktestE2E instrument dateRange strategyParams = do
-  let config = defaultAppConfig
+  -- Use permanent test fixtures directory with real January 2025 EURUSD data
+  let testDataDir = "./test/fixtures/e2e"
+
+  -- Create a custom config that points to test fixtures instead of production data
+  let testConfig = defaultAppConfig { acDataDirectory = testDataDir }
       env = AppEnv
-        { aeCsvProvider = CsvDataProvider (acDataDirectory config)
+        { aeCsvProvider = CsvDataProvider testDataDir  -- Use permanent test fixtures
         , aeRiskManager = defaultBasicRiskManager
         , aeReportGen   = ConsoleReportGenerator
+        , aeLogContext  = emptyLogContext
         }
       btConfig = defaultBacktestConfig
         { bcInstrument = instrument
@@ -237,4 +237,7 @@ runBacktestE2E instrument dateRange strategyParams = do
         , bcStrategyParams = strategyParams
         }
 
-  runAppM env (orchestrateBacktest btConfig)
+  result <- runAppM env (orchestrateBacktest btConfig)
+
+  -- No cleanup needed since we use permanent fixtures
+  return result

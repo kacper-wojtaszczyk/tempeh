@@ -82,6 +82,9 @@ test-suite tempeh-test
     , filepath
     , transformers
     , mtl
+    , aeson
+    , containers
+    , temporary
   other-modules:
       -- Unit Tests
       Unit.Domain.TypesTest
@@ -90,12 +93,15 @@ test-suite tempeh-test
     , Unit.Strategy.EmaCross.StrategyTest
     , Unit.Strategy.BollingerBands.IndicatorsTest
     , Unit.Strategy.BollingerBands.StrategyTest
+    , Unit.Strategy.RSI.IndicatorsTest
+    , Unit.Strategy.RSI.StrategyTest
     , Unit.Application.CLITest
     , Unit.Adapter.CsvDataProviderTest
     , Unit.Adapter.RiskManagerTest
     , Unit.Adapter.BacktestEngineTest
     , Unit.Util.ConfigTest
     , Unit.Util.ErrorTest
+    , Unit.Util.LoggerTest
       -- Integration Tests
     , Integration.BacktestIntegrationTest
     , Integration.StrategyComparisonTest
