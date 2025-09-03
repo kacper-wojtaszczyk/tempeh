@@ -1,13 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiWayIf #-}
-module Adapter.RiskManagerAdapter where
+module Adapter.RiskManagerAdapter
+  ( BasicRiskManager
+  , defaultBasicRiskManager
+  , runBasicRiskManager
+  , BasicRiskManagerM
+  ) where
 
 import Domain.Services.BacktestService (RiskManager(..), DrawdownAnalysis(..), DrawdownPeriod(..), RiskAssessment(..), RiskLevel(..))
 import Domain.Types
-import Util.Error (Result, AppError(..))
+import Util.Error (Result, TempehError, riskError, configError)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Reader
+import Control.Monad.Reader (ReaderT, runReaderT, asks, MonadReader)
 import Data.Scientific (Scientific, fromFloatDigits)
 import Data.Time (UTCTime, diffUTCTime)
 import Data.List (sortOn, maximumBy, minimumBy, groupBy)
@@ -29,9 +34,9 @@ instance RiskManager BasicRiskManagerM where
   validateRiskLimits limits = do
     -- Validate risk limits parameters
     let basicValidation =
-          if | rlMaxDrawdown limits <= 0 -> Left $ ValidationError "Max drawdown must be positive"
-             | rlMaxPositionSize limits <= 0 -> Left $ ValidationError "Max position size must be positive"
-             | rlStopLossThreshold limits < 0 -> Left $ ValidationError "Stop loss threshold cannot be negative"
+          if | rlMaxDrawdown limits <= 0 -> Left $ configError "Max drawdown must be positive"
+             | rlMaxPositionSize limits <= 0 -> Left $ configError "Max position size must be positive"
+             | rlStopLossThreshold limits < 0 -> Left $ configError "Stop loss threshold cannot be negative"
              | otherwise -> Right ()
 
     case basicValidation of
@@ -39,7 +44,7 @@ instance RiskManager BasicRiskManagerM where
       Right () -> do
         -- Additional validation logic
         if rlMaxDrawdown limits > fromFloatDigits 5000.0
-          then pure $ Left $ ValidationError "Max drawdown limit too high for safety"
+          then pure $ Left $ configError "Max drawdown limit too high for safety"
           else pure $ Right ()
 
   checkRiskLimits result limits = do
@@ -51,7 +56,7 @@ instance RiskManager BasicRiskManagerM where
             maxAllowed = rlMaxDrawdown limits
 
         if currentDrawdown > maxAllowed
-          then pure $ Left $ RiskViolationError $ "Drawdown exceeded: " <> T.pack (show currentDrawdown) <> " > " <> T.pack (show maxAllowed)
+          then pure $ Left $ riskError $ "Drawdown exceeded: " <> T.pack (show currentDrawdown) <> " > " <> T.pack (show maxAllowed)
           else pure $ Right ()
 
   calculateDrawdown equityCurve = do
@@ -64,7 +69,7 @@ instance RiskManager BasicRiskManagerM where
   validatePositionSize position maxSize = do
     let currentSize = unQty (pQty position)
     if currentSize > maxSize
-      then pure $ Left $ ValidationError $ "Position size exceeds limit: " <> T.pack (show currentSize)
+      then pure $ Left $ riskError $ "Position size exceeds limit: " <> T.pack (show currentSize)
       else pure $ Right ()
 
   assessPortfolioRisk positions account = do

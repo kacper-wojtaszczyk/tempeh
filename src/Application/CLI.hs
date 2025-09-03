@@ -10,13 +10,14 @@ import Adapter.CsvDataProvider (CsvDataProvider(..))
 import Adapter.RiskManagerAdapter (BasicRiskManager, defaultBasicRiskManager)
 import Adapter.ReportGeneratorAdapter (ConsoleReportGenerator(..))
 import Application.BacktestOrchestrator (orchestrateBacktest, BacktestConfig(..), defaultBacktestConfig)
-import Application.Env (AppEnv(..), runAppM)
+import Application.Env (AppEnv(..), runAppM, runAppMWithLogging)
 import Application.Strategy.Types (StrategyParameters(..), StrategyProvider(..))
 import Application.Strategy.Factory (initializeStrategyRegistry)
 import Application.Strategy.Registry (StrategyRegistry, listAvailableStrategies)
 import Domain.Services.BacktestService (DateRange(..), BacktestResult(..))
 import Domain.Types (Instrument(..))
 import Util.Config (defaultAppConfig, acDataDirectory)
+import Util.Logger (emptyLogContext, ComponentName(..))
 import Data.Scientific (fromFloatDigits)
 import Text.Read (readMaybe)
 import qualified Data.Text as T
@@ -91,6 +92,7 @@ runBacktest instrument dateRange strategyParams = do
         { aeCsvProvider = CsvDataProvider (acDataDirectory config)
         , aeRiskManager = defaultBasicRiskManager
         , aeReportGen   = ConsoleReportGenerator
+        , aeLogContext  = emptyLogContext
         }
       btConfig = defaultBacktestConfig
         { bcInstrument = instrument
@@ -99,8 +101,12 @@ runBacktest instrument dateRange strategyParams = do
         , bcInitialBalance = fromFloatDigits 10000.0
         , bcPositionSize = fromFloatDigits 1000.0
         }
+      -- Create component name for logging based on backtest parameters
+      componentName = ComponentName $ "backtest-" <> T.pack (show instrument) <> "-" <>
+                                     spStrategyType strategyParams
 
-  result <- runAppM env (orchestrateBacktest btConfig)
+  putStrLn $ "Logging to file with component: " <> show componentName
+  result <- runAppMWithLogging componentName env (orchestrateBacktest btConfig)
   case result of
     Left err -> putStrLn $ "Backtest failed: " <> show err
     Right final -> do

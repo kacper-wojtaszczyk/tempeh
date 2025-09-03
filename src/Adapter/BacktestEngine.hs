@@ -12,7 +12,7 @@ import Domain.Types
 import Domain.Strategy (StrategyState(..))
 import Domain.Services.BacktestService
 import Application.Strategy.Types (StrategyInstance, SignalGenerator)
-import Util.Error (Result, AppError(..))
+import Util.Error (Result, AppError(..), configError)
 
 -- Adapter implementation of BacktestService using State monad
 data BacktestEngineState = BacktestEngineState
@@ -101,7 +101,7 @@ instance BacktestService BacktestEngineM where
   validateBacktestParameters params =
     if bpInitialBalance params > 0 && bpPositionSize params > 0
       then pure $ Right ()
-      else pure $ Left $ ValidationError "Invalid backtest parameters"
+      else pure $ Left $ configError "Invalid backtest parameters"
 
 -- Core processing logic
 processCandlesWithSignalGenerator :: BacktestParameters -> SignalGenerator -> [Candle] -> BacktestEngineM ()

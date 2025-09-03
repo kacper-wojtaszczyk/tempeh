@@ -50,6 +50,7 @@ library
     , transformers
     , mtl
     , aeson
+    , containers
   default-language:    Haskell2010
 
 executable tempeh

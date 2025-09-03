@@ -23,6 +23,11 @@ cabal.project.local~
 .HTF/
 .ghc.environment.*
 
+#app
+
+data/backtesting/*
+log/*
+
 #intellij
 .idea/
 *.iml
@@ -30,14 +35,9 @@ cabal.project.local~
 
 # mac
 .DS_Store
-data/backtesting/*
-
-# cabal local and new-build artifacts
-cabal.project.local
-cabal.project.freeze
 
 # adapter caches
 **/.cache/
 
 # transient output files
-log/
+ai/

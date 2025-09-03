@@ -12,8 +12,8 @@ import Application.ReportingService
 import Application.Strategy.Types (StrategyParameters(..), StrategyInstance(..), StrategyProvider(..))
 import Application.Strategy.Factory (initializeStrategyRegistry)
 import Application.Strategy.Registry (StrategyRegistry, findStrategyByKeyword)
-import Util.Error (Result, AppError(..))
-import Util.Logger (logInfo, logError)
+import Util.Error (Result, AppError(..), dataError, configError)
+import Util.Logger (logInfo, logError, MonadLogger)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Scientific (Scientific, fromFloatDigits)
 import qualified Data.Text as T
@@ -29,54 +29,55 @@ data BacktestConfig = BacktestConfig
   , bcRiskLimits :: RiskLimits
   } deriving (Show)
 
--- Main orchestration function
+-- Main orchestration function with proper logging constraint
 orchestrateBacktest :: ( MonadIO m
                       , DataProvider m
                       , BacktestService m
                       , ReportGenerator m
                       , RiskManager m
+                      , MonadLogger m
                       )
                     => BacktestConfig
                     -> m (Result BacktestResult)
 orchestrateBacktest config = do
-  liftIO $ logInfo "Starting backtest orchestration"
+  logInfo "Starting backtest orchestration"
 
   -- Step 1: Validate configuration
   validateResult <- validateConfiguration config
   case validateResult of
     Left err -> do
-      liftIO $ logError $ "Configuration validation failed: " <> T.pack (show err)
+      logError $ "Configuration validation failed: " <> T.pack (show err)
       pure $ Left err
     Right () -> do
 
       -- Step 2: Load and validate data
-      liftIO $ logInfo $ "Loading data for " <> T.pack (show (bcInstrument config))
+      logInfo $ "Loading data for " <> T.pack (show (bcInstrument config))
       dataResult <- loadAndValidateData config
       case dataResult of
         Left err -> do
-          liftIO $ logError $ "Data loading failed: " <> T.pack (show err)
+          logError $ "Data loading failed: " <> T.pack (show err)
           pure $ Left err
         Right candles -> do
 
           -- Step 3: Execute backtest with risk management
-          liftIO $ logInfo "Executing backtest with risk management"
+          logInfo "Executing backtest with risk management"
           backtestResult <- executeBacktestWithRiskManagement config candles
           case backtestResult of
             Left err -> do
-              liftIO $ logError $ "Backtest execution failed: " <> T.pack (show err)
+              logError $ "Backtest execution failed: " <> T.pack (show err)
               pure $ Left err
             Right result -> do
 
               -- Step 4: Generate comprehensive report
-              liftIO $ logInfo "Generating performance report"
+              logInfo "Generating performance report"
               let rptCtx = ReportContext (bcInstrument config) (bcDateRange config) (bcStrategyParams config) (bcInitialBalance config)
               reportResult <- generatePerformanceReport result config rptCtx
               case reportResult of
                 Left err -> do
-                  liftIO $ logError $ "Report generation failed: " <> T.pack (show err)
+                  logError $ "Report generation failed: " <> T.pack (show err)
                   pure $ Left err
                 Right finalResult -> do
-                  liftIO $ logInfo "Backtest orchestration completed successfully"
+                  logInfo "Backtest orchestration completed successfully"
                   pure $ Right finalResult
 
 -- Configuration validation
@@ -109,7 +110,7 @@ loadAndValidateData config = do
         Left err -> pure $ Left err
         Right qualityReport -> do
           if dqrQualityScore qualityReport < 50  -- Minimum quality threshold
-            then pure $ Left $ ValidationError "Data quality too low for reliable backtesting"
+            then pure $ Left $ dataError "Data quality too low for reliable backtesting"
             else do
               -- Convert to candles
               candlesResult <- loadCandles (bcInstrument config) (bcDateRange config) OneMinute
@@ -154,7 +155,7 @@ createStrategyInstanceFromParams registry params =
   let strategyType = spStrategyType params
   in case findStrategyByKeyword (T.unpack strategyType) registry of
        Just provider -> Right (spFactory provider params)
-       Nothing -> Left $ ConfigError $ "Unknown strategy type: " <> strategyType
+       Nothing -> Left $ configError $ "Unknown strategy type: " <> strategyType
 
 -- Generate comprehensive report
 generatePerformanceReport :: (MonadIO m, BacktestService m, ReportGenerator m)

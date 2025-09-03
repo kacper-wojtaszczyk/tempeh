@@ -49,6 +49,7 @@ The project follows clean architecture principles with clear separation of conce
 - **📅 Date Range Filtering**: Run backtests on specific time periods
 - **📋 Comprehensive Reporting**: Detailed P&L analysis, trade history, and performance metrics
 - **🛡️ Risk Management**: Built-in position sizing and risk controls
+- **📝 Structured Logging**: File-based logging system with component-specific log files and clean console output
 - **🧪 Extensive Testing**: Tests following the Testing Diamond approach
 - **🏗️ Clean Architecture**: Hexagonal architecture ready for live trading extensions
 
@@ -97,6 +98,46 @@ Backtesting data can be sourced from [histdata.com](https://www.histdata.com/). 
 - **Datetime Format**: `YYYYMMDD HHMMSSTTT`
 
 Place CSV files in the `data/backtesting/` directory.
+
+## 📝 Logging System
+
+The application features a comprehensive structured logging system that separates technical logs from user-facing output:
+
+### 🎯 Clean Output Separation
+- **Console Output**: Clean, user-friendly backtest results and summaries
+- **Log Files**: Detailed application logs stored in the `log/` directory
+
+### 📁 Log File Organization
+Each backtest run creates a dedicated log file with the naming pattern:
+```
+log/backtest-{INSTRUMENT}-{STRATEGY}-{TIMESTAMP}.log
+```
+
+**Example log files:**
+```
+log/backtest-EURUSD-rsi-20250902-134838.log
+log/backtest-GBPUSD-ema-20250902-141225.log
+```
+
+### 🔍 Log Content Structure
+Log entries include structured information for debugging and monitoring:
+```
+2025-09-02 13:48:38 [Info] (backtest-EURUSD-rsi)  Loading ticks for EURUSD from 2025-1 to 2025-1
+2025-09-02 13:48:38 [Debug] (backtest-EURUSD-rsi)  Successfully loaded 125,847 ticks
+2025-09-02 13:48:39 [Info] (backtest-EURUSD-rsi)  Executing backtest with 1,440 candles
+```
+
+**Each log entry contains:**
+- **Timestamp**: Precise execution time
+- **Log Level**: Debug, Info, Warn, Error
+- **Component**: Which part of the system generated the log
+- **Message**: Detailed information about the operation
+
+### 💡 Benefits
+- **Clean User Experience**: No technical logs cluttering console output
+- **Detailed Debugging**: Full application flow captured in persistent files
+- **Component Tracing**: Easy identification of which system component generated each log
+- **Production Ready**: Essential for live trading monitoring and troubleshooting
 
 ## 🧪 Test Suite
 

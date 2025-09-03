@@ -5,7 +5,7 @@ module Adapter.ReportGeneratorAdapter where
 import Application.ReportingService
 import Domain.Types
 import Domain.Services.BacktestService
-import Util.Error (Result, AppError(..))
+import Util.Error (Result, TempehError, unsupportedOperationError)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader
 import Data.Scientific (Scientific, fromFloatDigits)
@@ -73,7 +73,7 @@ instance ReportGenerator ConsoleReportGeneratorM where
         let htmlContent = formatReportAsHTML reportOutput
         liftIO $ TIO.writeFile filePath htmlContent
         pure $ Right ()
-      PDF -> pure $ Left $ UnsupportedOperationError "PDF export not implemented yet"
+      PDF -> pure $ Left $ unsupportedOperationError "PDF export not implemented yet"
 
 -- Implementation functions
 generateReportSummary :: ReportContext -> BacktestResult -> ReportSummary

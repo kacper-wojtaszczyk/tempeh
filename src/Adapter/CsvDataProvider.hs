@@ -4,7 +4,7 @@ module Adapter.CsvDataProvider where
 
 import Domain.Services.BacktestService (DataProvider(..), DateRange(..), CandlePeriod(..), DataQualityReport(..))
 import Domain.Types
-import Util.Error (Result, AppError(..))
+import Util.Error (Result, AppError(..), fileError, dataError)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.Text.Read as TR
@@ -69,7 +69,7 @@ loadTicksFromCsv :: FilePath -> Instrument -> DateRange -> IO (Result [Tick])
 loadTicksFromCsv dataDir instrument dateRange = do
   dirExists <- doesDirectoryExist dataDir
   if not dirExists
-    then pure $ Left $ FileError $ "Data directory does not exist: " <> T.pack dataDir
+    then pure $ Left $ fileError $ "Data directory does not exist: " <> T.pack dataDir
     else do
       filesResult <- getMatchingFiles dataDir instrument dateRange
       case filesResult of
@@ -79,13 +79,13 @@ loadTicksFromCsv dataDir instrument dateRange = do
           let (errors, tickLists) = partitionEithers allTickResults
           if null errors
             then pure $ Right $ sortOn tTime $ concat tickLists
-            else pure $ Left $ FileError $ "File loading errors: " <> T.intercalate "; " (map (T.pack . show) errors)
+            else pure $ Left $ fileError $ "File loading errors: " <> T.intercalate "; " (map (T.pack . show) errors)
 
 getMatchingFiles :: FilePath -> Instrument -> DateRange -> IO (Result [String])
 getMatchingFiles dataDir instrument dateRange = do
   filesResult <- tryIO $ listDirectory dataDir
   case filesResult of
-    Left err -> pure $ Left $ FileError $ T.pack $ show err
+    Left err -> pure $ Left $ fileError $ T.pack $ show err
     Right allFiles ->
       let csvFiles = filter (T.isPrefixOf "DAT_ASCII_" . T.pack) allFiles
           instrumentFiles = filter (isFileForInstrument instrument) csvFiles
@@ -96,10 +96,10 @@ loadTicksFromFile :: FilePath -> String -> IO (Result [Tick])
 loadTicksFromFile dataDir fileName = do
   contentResult <- tryIO $ TIO.readFile (dataDir </> fileName)
   case contentResult of
-    Left err -> pure $ Left $ FileError $ T.pack $ show err
+    Left err -> pure $ Left $ fileError $ T.pack $ show err
     Right content ->
       case extractInstrumentFromFilename fileName of
-        Nothing -> pure $ Left $ ParseError $ "Could not parse instrument from: " <> T.pack fileName
+        Nothing -> pure $ Left $ dataError $ "Could not parse instrument from: " <> T.pack fileName
         Just instrument -> do
           let ticks = parseTicksFromText instrument content
           pure $ Right ticks
