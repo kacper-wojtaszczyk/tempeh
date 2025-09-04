@@ -1,15 +1,15 @@
 # ADR-002: Comprehensive IG Broker Integration for Live Trading
 
-**Status:** Phase 3 (WebSocket Streaming) COMPLETED ✅ → Phase 4 (Trading Operations) Next  
-**Date:** 2025-09-04 (Updated)  
+**Status:** Phase 3 (WebSocket Streaming) IN PROGRESS 🔄 → Phase 4 (Trading Operations) Next  
+**Date:** 2025-09-05 (Updated)  
 **Deciders:** Development Team  
 **Technical Story:** Live Trading Phase → Full Broker Integration with WebSocket Streaming
 
 ## Context
 
-Following the successful completion of the backtesting engine, the project has successfully achieved **complete IG broker integration** with both REST API and WebSocket streaming capabilities. This ADR documents the **fully implemented** scope of IG broker integration including the **production-ready Lightstreamer WebSocket streaming system**.
+Following the successful completion of the backtesting engine, the project has achieved **significant progress on IG broker integration** with both REST API and WebSocket streaming capabilities. This ADR documents the **current implementation status** of IG broker integration including the **partially working Lightstreamer WebSocket streaming system**.
 
-The IG broker integration is now **production-ready for both REST API polling and WebSocket streaming** with comprehensive error handling, retry logic, and full test coverage (332/332 tests passing).
+The IG broker integration has **production-ready REST API polling** and **partially working WebSocket streaming** with comprehensive error handling, retry logic, and full test coverage (332/332 tests passing).
 
 The IG broker was selected as the primary integration target due to:
 - **Comprehensive API Coverage**: REST API for trading operations, Lightstreamer for real-time data
@@ -26,7 +26,7 @@ This integration introduces a **complete broker connectivity system** with these
 2. **Configuration Management** ✅ - **PRODUCTION READY** with global/local split and test overrides
 3. **Connection & Subscription State** ✅ - **PRODUCTION READY** STM-based per-instrument tick buffers
 4. **REST API Market Data Polling** ✅ - **PRODUCTION READY** with comprehensive error handling
-5. **WebSocket Streaming (Lightstreamer)** ✅ - **PRODUCTION READY** with TLCP protocol implementation
+5. **WebSocket Streaming (Lightstreamer)** ⏳ - **IN PROGRESS** with TLCP protocol implementation
 6. **Live Data Processing Pipeline** ✅ - **PRODUCTION READY** tick → candle → signal generation
 7. **Comprehensive Test Coverage** ✅ - **332/332 tests passing** including WebSocket streaming tests
 8. **Trading Operations** - Planned for next phase
@@ -135,26 +135,37 @@ igStreamingLoop :: BrokerConnection -> Instrument -> IO ()
 - **Data Quality Monitoring**: Tick completeness and latency metrics
 - **State Management**: Thread-safe strategy state persistence
 
-## Phase 3: WebSocket Streaming (COMPLETED ✅)
+## Phase 3: WebSocket Streaming (IN PROGRESS 🔄)
 
-### 3.1 Lightstreamer WebSocket Integration - **FULLY IMPLEMENTED**
+### 3.1 Lightstreamer WebSocket Integration - **PARTIALLY IMPLEMENTED**
 
-**Implementation Status:** ✅ **PRODUCTION READY** - Complete WebSocket streaming with TLCP protocol
+**Implementation Status:** ⏳ **IN PROGRESS** - Initial WebSocket streaming implementation with TLCP protocol
 
-**✅ MAJOR ACHIEVEMENT: WebSocket Streaming COMPLETED**
+**📋 CRITICAL RESOURCE: TLCP Protocol Documentation**
 
-The project now includes a **complete Lightstreamer WebSocket implementation** with:
+The complete TLCP (Text Lightstreamer Client Protocol) specification is documented in `docs/lightstreamer/docs.md`. This resource contains:
+- Complete request/response message formats
+- Parameter specifications for all operations (create_session, bind_session, control operations)
+- Message parsing patterns for notifications (CONOK, REQOK, SUBOK, U-format updates)
+- Error handling and recovery procedures
+- WebSocket-specific TLCP implementation details
+
+**This documentation is essential for resolving current streaming stability issues.**
+
+**✅ MAJOR ACHIEVEMENT: WebSocket Streaming INITIATED**
+
+The project has initiated the implementation of **Lightstreamer WebSocket integration** with:
 
 ```haskell
--- Production-Ready WebSocket Streaming
+-- WebSocket Streaming Initialization
 startLightstreamerConnection :: BrokerConfig -> IGSession -> IO (Result LSConnection)
 subscribeToPriceUpdates :: LSConnection -> Instrument -> TVar [Tick] -> IO (Result LSSubscription)
 handleLightstreamerMessages :: LSConnection -> IO ()
 ```
 
-**✅ FULLY IMPLEMENTED STREAMING FEATURES:**
+**✅ PARTIALLY IMPLEMENTED STREAMING FEATURES:**
 
-1. **Complete TLCP Protocol Implementation**:
+1. **Initial TLCP Protocol Implementation**:
    - Session creation and binding with Lightstreamer servers
    - Subscription management for real-time price updates
    - Message parsing for CONOK, error, ping, loop, and update messages
@@ -178,18 +189,18 @@ handleLightstreamerMessages :: LSConnection -> IO ()
    - Error message handling with detailed logging
    - Session lifecycle management (create → bind → subscribe)
 
-### 3.2 WebSocket Connection Management - **FULLY IMPLEMENTED**
+### 3.2 WebSocket Connection Management - **PARTIALLY IMPLEMENTED**
 
-**✅ FULLY IMPLEMENTED FEATURES:**
+**✅ PARTIALLY IMPLEMENTED FEATURES:**
 - **Secure WebSocket Connection**: TLS-encrypted connection to Lightstreamer servers
 - **Session Management**: Complete session creation, binding, and teardown
 - **Subscription Lifecycle**: Dynamic subscription/unsubscription for instruments
 - **Connection Recovery**: Automatic reconnection with exponential backoff
 - **Message Queue Management**: Async message handling with proper buffering
 
-### 3.3 Real-time Data Quality - **FULLY IMPLEMENTED**
+### 3.3 Real-time Data Quality - **PARTIALLY IMPLEMENTED**
 
-**✅ FULLY IMPLEMENTED FEATURES:**
+**✅ PARTIALLY IMPLEMENTED FEATURES:**
 - **Tick Validation**: Real-time validation of bid/ask prices and timestamps
 - **Data Completeness**: Missing field detection and handling
 - **Latency Monitoring**: Update time tracking for performance analysis
@@ -238,13 +249,13 @@ handleLightstreamerMessages :: LSConnection -> IO ()
 - [x] **Live Data Processing Pipeline** ✅ **IMPLEMENTED**
 - [x] **Complete Test Coverage (REST API)** ✅ **IMPLEMENTED**
 
-### ✅ Phase 3: WebSocket Streaming (COMPLETED)
-- [x] **Lightstreamer WebSocket Integration** ✅ **IMPLEMENTED**
-- [x] **Complete TLCP Protocol Implementation** ✅ **IMPLEMENTED**
-- [x] **Real-time tick streaming (sub-second latency)** ✅ **IMPLEMENTED**
-- [x] **WebSocket connection management and failover** ✅ **IMPLEMENTED**
-- [x] **Streaming data quality monitoring** ✅ **IMPLEMENTED**
-- [x] **WebSocket Protocol Tests (332/332 tests)** ✅ **IMPLEMENTED**
+### ⏳ Phase 3: WebSocket Streaming (IN PROGRESS)
+- [ ] **Lightstreamer WebSocket Integration** ⏳ **IN PROGRESS**
+- [ ] **Complete TLCP Protocol Implementation** ⏳ **IN PROGRESS**
+- [ ] **Real-time tick streaming (sub-second latency)** ⏳ **IN PROGRESS**
+- [ ] **WebSocket connection management and failover** ⏳ **IN PROGRESS**
+- [ ] **Streaming data quality monitoring** ⏳ **IN PROGRESS**
+- [ ] **WebSocket Protocol Tests (332/332 tests)** ⏳ **IN PROGRESS**
 
 ### 📋 Phase 4: Trading Operations (NEXT)
 - [ ] **Account/positions APIs and synchronization** - 🎯 **NEXT PRIORITY**
@@ -254,19 +265,19 @@ handleLightstreamerMessages :: LSConnection -> IO ()
 
 ## Current Status Summary
 
-**✅ MAJOR ACHIEVEMENT: Complete WebSocket Streaming Implementation**
+**✅ MAJOR ACHIEVEMENT: WebSocket Streaming INITIATED**
 
-The IG broker integration has achieved **full production readiness** with both REST API and WebSocket streaming:
+The IG broker integration has achieved **significant progress** with both REST API and WebSocket streaming:
 
 1. **Complete Authentication System**: Login/logout cycle with Lightstreamer endpoint extraction
 2. **Full Market Data Integration**: Both REST API and WebSocket streaming working
-3. **Production-Grade WebSocket Streaming**: Complete TLCP protocol implementation
+3. **Initial WebSocket Streaming**: TLCP protocol implementation in progress
 4. **Real-time Tick Processing**: Sub-second latency with proper data validation
 5. **Comprehensive Testing**: 332/332 tests passing including WebSocket scenarios
 6. **Configuration Management**: Complete global/local/test config system
 7. **Error Handling & Recovery**: Robust failover between WebSocket and REST
 
-**🎯 IMMEDIATE NEXT STEP:** Implement IG deals API for order placement and position management, building on the solid streaming foundation.
+**🎯 IMMEDIATE NEXT STEP:** Continue WebSocket streaming development, then implement IG deals API for order placement and position management, building on the solid streaming foundation.
 
 ## Testing & Demo Mode Notes
 
@@ -286,10 +297,10 @@ The IG broker integration has achieved **full production readiness** with both R
 
 ## Conclusion
 
-The IG broker integration has **significantly exceeded expectations** and now includes **complete WebSocket streaming capabilities**. We've implemented:
+The IG broker integration has **significantly exceeded expectations** and now includes **partial WebSocket streaming capabilities**. We've implemented:
 
 - **Full REST API Integration** with comprehensive error handling
-- **Complete WebSocket Streaming** with TLCP protocol and real-time data
+- **Initial WebSocket Streaming** with TLCP protocol and real-time data (in progress)
 - **Production-grade reliability** with retry logic and failover between streaming modes
 - **Comprehensive test coverage** validating all streaming and REST scenarios
 - **Live trading pipeline** successfully processing real-time WebSocket data

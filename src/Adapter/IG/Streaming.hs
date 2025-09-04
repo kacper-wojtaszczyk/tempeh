@@ -29,6 +29,7 @@ module Adapter.IG.Streaming
 
 import Control.Concurrent.Async (Async, async, cancel, race)
 import Control.Concurrent.STM
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (try, SomeException, bracket, finally)
 import Control.Monad (forever, void, when)
 import Control.Monad.IO.Class (liftIO)
@@ -37,7 +38,7 @@ import qualified Data.Aeson as JSON
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as LBS
-import Data.List (intercalate)
+import Data.List (intercalate, find)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe, isJust)
@@ -67,6 +68,8 @@ data LSConnection = LSConnection
   , lsNextSubId :: TVar Int
   , lsHeartbeatAsync :: Maybe (Async ())
   , lsMessageAsync :: Maybe (Async ())
+  , lsTableMap :: TVar (Map Int Int)        -- serverTableId -> subId
+  , lsPendingSubs :: TVar [Int]             -- queue of subIds awaiting SUBOK
   }
 
 data LSSubscription = LSSubscription
@@ -82,6 +85,9 @@ data LSMessage
   | LSUpdateMessage Int [Maybe Text]  -- subscription id, field values
   | LSPing
   | LSLoop
+  | LSInfo Text
+  | LSSubOk Int                       -- server table id
+  | LSReqErr Int Int Text             -- reqId, errorCode, errorMessage
   | LSError Text
   deriving (Show, Eq)
 
@@ -141,41 +147,57 @@ establishLightstreamerConnection lsEndpoint igSession = do
 
   streamLogInfo "Starting WebSocket connection with TLCP subprotocol..."
 
-  -- Create WebSocket connection with TLCP subprotocol via header
-  let connectionOptions = WS.defaultConnectionOptions { WS.connectionCompressionOptions = WS.NoCompression }
-      headers = [("Sec-WebSocket-Protocol", BS8.pack "TLCP-2.4.0.lightstreamer.com")]
+  -- MVar to pass connection back once ready
+  readyVar <- newEmptyMVar
 
-  Wuss.runSecureClientWith host 443 path connectionOptions headers $ \conn -> do
-    streamLogInfo "WebSocket handshake completed successfully with TLCP!"
+  -- Start WebSocket client in a managed async thread and keep it alive
+  _ <- async $ do
+    let connectionOptions = WS.defaultConnectionOptions { WS.connectionCompressionOptions = WS.NoCompression }
+        headers = [("Sec-WebSocket-Protocol", BS8.pack "TLCP-2.4.0.lightstreamer.com")]
+    Wuss.runSecureClientWith host 443 path connectionOptions headers $ \conn -> do
+      streamLogInfo "WebSocket handshake completed successfully with TLCP!"
 
-    -- Initialize connection state
-    subscriptions <- newTVarIO Map.empty
-    nextSubId <- newTVarIO 1
+      -- Initialize connection state
+      subscriptions <- newTVarIO Map.empty
+      nextSubId <- newTVarIO 1
+      tableMap <- newTVarIO Map.empty
+      pendingSubs <- newTVarIO []
 
-    -- Create Lightstreamer session using TLCP protocol
-    streamLogDebug "Starting TLCP session creation"
-    sessionResult <- createLightstreamerSessionTLCP conn igSession lsEndpoint
-    case sessionResult of
-      Left err -> do
-        streamLogError $ "Failed to create Lightstreamer session: " <> T.pack (show err)
-        error $ "Session creation failed: " <> show err
-      Right sessionId -> do
-        streamLogInfo $ "TLCP session created successfully: " <> sessionId
-        let lsConn = LSConnection
-              { lsConnection = conn
-              , lsSessionId = Just sessionId
-              , lsControlUrl = lsEndpoint
-              , lsSubscriptions = subscriptions
-              , lsNextSubId = nextSubId
-              , lsHeartbeatAsync = Nothing
-              , lsMessageAsync = Nothing
-              }
-        _ <- async $ handleLightstreamerMessages lsConn
-        return lsConn
+      -- Create Lightstreamer session using TLCP protocol
+      streamLogDebug "Starting TLCP session creation"
+      sessionResult <- createLightstreamerSessionTLCP conn igSession lsEndpoint
+      case sessionResult of
+        Left err -> do
+          streamLogError $ "Failed to create Lightstreamer session: " <> T.pack (show err)
+          putMVar readyVar (error "Lightstreamer session creation failed")
+        Right sessionId -> do
+          -- Build LSConnection and signal readiness
+          let lsConn = LSConnection
+                { lsConnection = conn
+                , lsSessionId = Just sessionId
+                , lsControlUrl = lsEndpoint
+                , lsSubscriptions = subscriptions
+                , lsNextSubId = nextSubId
+                , lsHeartbeatAsync = Nothing
+                , lsMessageAsync = Nothing
+                , lsTableMap = tableMap
+                , lsPendingSubs = pendingSubs
+                }
+          putMVar readyVar lsConn
+          -- Run message loop to keep connection alive
+          handleLightstreamerMessages lsConn
 
--- Percent-encode reserved characters in TLCP parameter values (minimal)
+  -- Wait for the connection to be ready
+  takeMVar readyVar
+
+-- Percent-encode reserved characters in TLCP parameter values
 percentEncodeTLCP :: Text -> Text
-percentEncodeTLCP = T.replace "|" "%7C" . T.replace " " "%20"
+percentEncodeTLCP text =
+  T.replace ":" "%3A" $
+  T.replace "=" "%3D" $
+  T.replace "&" "%26" $
+  T.replace "|" "%7C" $
+  T.replace " " "%20" text
 
 -- Create Lightstreamer session using proper TLCP protocol
 createLightstreamerSessionTLCP :: WS.Connection -> IGSession -> Text -> IO (Result Text)
@@ -318,15 +340,16 @@ subscribeToPriceUpdates lsConn instrument tickBuffer = do
         writeTVar (lsNextSubId lsConn) (current + 1)
         return current
 
-      let item = "MARKET:" <> epic
-          fields = ["BID", "OFR", "UTM"]  -- Bid, Offer, Update Time
+      -- Use CHART subscription for tick data with proper format
+      let chartId = "CHART:" <> epic <> ":TICK"
+          fields = ["BID", "OFR", "LTP", "LTV", "TTV", "UTM"]  -- Full tick data fields
 
-      streamLogDebug $ "Subscribing to item: " <> item <> " with fields: " <> T.intercalate ", " fields
+      streamLogDebug $ "Subscribing to chart: " <> chartId <> " with fields: " <> T.intercalate ", " fields
 
       -- Create subscription record
       let subscription = LSSubscription
             { lsSubId = subId
-            , lsItems = [item]
+            , lsItems = [chartId]
             , lsFields = fields
             , lsInstrument = instrument
             , lsTickBuffer = tickBuffer
@@ -334,14 +357,30 @@ subscribeToPriceUpdates lsConn instrument tickBuffer = do
 
       -- Add to subscriptions map
       atomically $ modifyTVar (lsSubscriptions lsConn) $ Map.insert subId subscription
+      -- Mark as pending until SUBOK arrives
+      atomically $ modifyTVar (lsPendingSubs lsConn) (++ [subId])
 
-      -- Send subscription message
-      let subMsg = formatControlMessage $ Subscribe [item] fields "MERGE"
+      -- Send subscription message using proper TLCP protocol format
+      let sessionId = fromMaybe "" (lsSessionId lsConn)
+          encodedFields = percentEncodeTLCP (T.intercalate " " fields)
+          -- Use proper TLCP parameters as specified in the documentation
+          params = T.intercalate "&"
+            [ "LS_reqId=" <> T.pack (show subId)
+            , "LS_op=add"
+            , "LS_subId=" <> T.pack (show subId)
+            , "LS_mode=DISTINCT"
+            , "LS_group=" <> percentEncodeTLCP chartId
+            , "LS_schema=" <> encodedFields
+            , "LS_snapshot=true"
+            , "LS_ack=true"
+            , "LS_session=" <> sessionId
+            ]
+          subMsg = "control\r\n" <> params
 
-      streamLogDebug $ "Sending subscription: " <> subMsg
+      streamLogDebug $ "Sending TLCP subscription request:\n" <> subMsg
       WS.sendTextData (lsConnection lsConn) subMsg
 
-      streamLogInfo $ "Subscription created with ID: " <> T.pack (show subId)
+      streamLogInfo $ "CHART subscription created with ID: " <> T.pack (show subId)
       return $ Right subscription
 
 -- Convert instrument to IG epic format
@@ -358,32 +397,63 @@ handleLightstreamerMessages :: LSConnection -> IO ()
 handleLightstreamerMessages lsConn = do
   streamLogInfo "Starting Lightstreamer message handler"
 
-  let handleMessage = do
-        response <- WS.receiveData (lsConnection lsConn)
-        let responseText = TE.decodeUtf8 $ LBS.toStrict response
+  let handleFrame = do
+        frame <- WS.receiveData (lsConnection lsConn)
+        let txt = TE.decodeUtf8 $ LBS.toStrict frame
+            lines' = filter (not . T.null) $ map T.strip $ T.splitOn "\r\n" txt
+        mapM_ handleLine lines'
 
-        when (not $ T.null $ T.strip responseText) $ do
-          streamLogDebug $ "Received: " <> responseText
+      handleLine responseText = do
+        streamLogDebug $ "Received: " <> responseText
+        case parseLightstreamerMessage responseText of
+          LSSubOk subId -> do
+            -- SUBOK contains the subscription ID directly in TLCP
+            -- Remove from pending list and mark as active
+            atomically $ do
+              pend <- readTVar (lsPendingSubs lsConn)
+              writeTVar (lsPendingSubs lsConn) (filter (/= subId) pend)
+            streamLogInfo $ "Subscription confirmed for subId: " <> T.pack (show subId)
 
-          case parseLightstreamerMessage responseText of
-            LSUpdateMessage subId values -> do
-              streamLogDebug $ "Processing update for subscription " <> T.pack (show subId)
-              handleStreamingTick lsConn subId values
+          LSReqErr reqId errorCode errorMsg -> do
+            streamLogError $ "Subscription error for reqId " <> T.pack (show reqId) <> ": Error " <> T.pack (show errorCode) <> " - " <> errorMsg
+            -- Remove the failed subscription from pending list and subscriptions
+            atomically $ do
+              pend <- readTVar (lsPendingSubs lsConn)
+              case find (== reqId) pend of
+                Just failedSubId -> do
+                  writeTVar (lsPendingSubs lsConn) (filter (/= failedSubId) pend)
+                  modifyTVar (lsSubscriptions lsConn) (Map.delete failedSubId)
+                Nothing -> return ()
 
-            LSPing -> do
-              streamLogDebug "Received ping, sending pong"
-              WS.sendTextData (lsConnection lsConn) ("PONG" :: Text)
+          LSUpdateMessage subId values -> do
+            -- In TLCP, updates contain the subscription ID directly
+            streamLogDebug $ "Processing update for subId: " <> T.pack (show subId)
+            handleStreamingTick lsConn subId values
 
-            LSLoop -> do
-              streamLogDebug "Received loop message"
+          LSPing -> do
+            streamLogDebug "Received ping, sending pong"
+            WS.sendTextData (lsConnection lsConn) ("PONG" :: Text)
 
-            LSError errMsg -> do
-              streamLogError $ "Received error: " <> errMsg
+          LSLoop -> do
+            streamLogDebug "Received loop message"
+            case lsSessionId lsConn of
+              Just sid -> do
+                let bindMsg = "bind_session\r\nLS_session=" <> sid <> "&LS_keepalive_millis=5000&LS_send_sync=false&LS_cause=ws.loop\r\n"
+                streamLogDebug $ "Sending bind_session: " <> bindMsg
+                WS.sendTextData (lsConnection lsConn) bindMsg
+              Nothing ->
+                streamLogWarn "Loop received but no session id present"
 
-            msg -> do
-              streamLogDebug $ "Received other message: " <> T.pack (show msg)
+          LSInfo infoMsg ->
+            streamLogDebug $ "Received server info: " <> infoMsg
 
-  result <- try $ forever handleMessage
+          LSError errMsg ->
+            streamLogError $ "Received error: " <> errMsg
+
+          msg ->
+            streamLogDebug $ "Received other message: " <> T.pack (show msg)
+
+  result <- try $ forever handleFrame
   case result of
     Left (ex :: SomeException) -> do
       streamLogError $ "Message handler error: " <> T.pack (show ex)
@@ -401,10 +471,10 @@ handleStreamingTick lsConn subId values = do
     Just subscription -> do
       streamLogDebug $ "Processing tick for " <> T.pack (show $ lsInstrument subscription)
 
-      -- Extract bid, offer, and update time from values
-      -- Values correspond to ["BID", "OFR", "UTM"] fields
+      -- Extract tick data from CHART subscription values
+      -- Values correspond to ["BID", "OFR", "LTP", "LTV", "TTV", "UTM"] fields
       case values of
-        [bidMaybe, offerMaybe, timeMaybe] -> do
+        (bidMaybe:offerMaybe:_ltpMaybe:_ltvMaybe:_ttvMaybe:timeMaybe:_) -> do
           currentTime <- getCurrentTime
 
           let bid = bidMaybe >>= parseScientific >>= Just . realToFrac
@@ -431,7 +501,7 @@ handleStreamingTick lsConn subId values = do
               streamLogWarn $ "Invalid price data: bid=" <> T.pack (show bid) <> ", offer=" <> T.pack (show offer)
 
         _ -> do
-          streamLogWarn $ "Unexpected number of field values: " <> T.pack (show $ length values)
+          streamLogWarn $ "Unexpected number of field values for CHART data: " <> T.pack (show $ length values) <> " values: " <> T.pack (show values)
 
 -- Parse scientific number from text
 parseScientific :: Text -> Maybe Scientific
@@ -505,27 +575,38 @@ parseLightstreamerMessage msg
   | "CONOK" `T.isPrefixOf` msg = parseControlResponse msg
   | "CONERR" `T.isPrefixOf` msg = LSError $ T.drop 6 msg
   | "ERROR" `T.isPrefixOf` msg = LSError $ T.drop 5 msg
+  | "REQOK" `T.isPrefixOf` msg = case T.splitOn "," msg of
+       (_:reqIdStr:_) -> case reads (T.unpack reqIdStr) of
+         [(reqId :: Int, "")] -> LSInfo $ "Request " <> T.pack (show reqId) <> " acknowledged"
+         _ -> LSInfo msg
+       _ -> LSInfo msg
+  | "REQERR" `T.isPrefixOf` msg = case T.splitOn "," msg of
+       (_:reqIdStr:errorCodeStr:errorMsgParts) ->
+         case (reads (T.unpack reqIdStr), reads (T.unpack errorCodeStr)) of
+           ([(reqId :: Int, "")], [(errorCode :: Int, "")]) ->
+             LSReqErr reqId errorCode (T.intercalate "," errorMsgParts)
+           _ -> LSError msg
+       _ -> LSError msg
+  | "SUBOK" `T.isPrefixOf` msg = case T.splitOn "," msg of
+       (_:subIdStr:numItemsStr:numFieldsStr:_) -> case reads (T.unpack subIdStr) of
+         [(subId :: Int, "")] -> LSSubOk subId
+         _ -> LSInfo msg
+       _ -> LSInfo msg
+  | "U" `T.isPrefixOf` msg = parseUpdateMessage msg
   | "PING" == T.strip msg = LSPing
+  | "PROBE" == T.strip msg = LSPing  -- PROBE is server keepalive, treat as ping
   | "LOOP" `T.isPrefixOf` msg = LSLoop
-  | isUpdateMessage msg = parseUpdateMessage msg
+  | any (`T.isPrefixOf` msg) ["SERVNAME", "CLIENTIP", "CONS", "NOOP", "WSOK"] = LSInfo msg
   | otherwise = LSError $ "Unknown message: " <> msg
-  where
-    -- Check if message looks like an update message (subId|field1|field2|...)
-    isUpdateMessage m =
-      case T.splitOn "|" m of
-        (firstPart:_) -> case reads (T.unpack firstPart) of
-          [(subId :: Int, "")] -> subId > 0  -- Valid positive subscription ID
-          _ -> False
-        _ -> False
 
--- Parse update messages (format: subId|field1|field2|...)
+-- Parse update messages (format: U,subId,item,field1|field2|...)
 parseUpdateMessage :: Text -> LSMessage
 parseUpdateMessage msg =
-  case T.splitOn "|" msg of
-    (subIdStr:values) ->
+  case T.splitOn "," msg of
+    ("U":subIdStr:_item:fieldData:_) ->
       case reads (T.unpack subIdStr) of
         [(subId, "")] ->
-          let fieldValues = map (\v -> if T.null v then Nothing else Just v) values
+          let fieldValues = map (\v -> if T.null v then Nothing else Just v) $ T.splitOn "|" fieldData
           in LSUpdateMessage subId fieldValues
-        _ -> LSError $ "Invalid subscription ID: " <> subIdStr
+        _ -> LSError $ "Invalid subscription ID in update: " <> subIdStr
     _ -> LSError $ "Invalid update message format: " <> msg

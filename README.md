@@ -4,9 +4,9 @@ A Haskell-based forex trading bot with backtesting and **live trading capabiliti
 
 ## 🚧 Project Status
 
-**Current Phase: WebSocket Streaming COMPLETED ✅ → Trading Operations (Next)**
+**Current Phase: WebSocket Streaming (🔄 In Progress) → Trading Operations (Next)**
 
-This project has successfully evolved from backtesting to **production-ready live trading** with comprehensive IG broker integration. The backtesting engine is complete and battle-tested, and we now have a **fully functional live trading system** processing real market data via both REST API and **real-time WebSocket streaming**.
+This project has successfully evolved from backtesting to **live trading with real-time market data** via comprehensive IG broker integration. The backtesting engine is complete and battle-tested, and we now have a **functional live trading system** processing real market data via REST API and **partially working WebSocket streaming**.
 
 ### ✅ Completed Features
 
@@ -16,15 +16,27 @@ This project has successfully evolved from backtesting to **production-ready liv
 - CSV data ingestion from histdata.com
 
 #### Live Trading System  
-- **Real-time market data** from IG broker via REST API and WebSocket streaming
-- **Sub-second tick latency** through Lightstreamer WebSocket integration
-- **Complete TLCP protocol implementation** for IG's streaming platform
+- **Real-time market data** from IG broker via REST API polling
 - **Automated strategy execution** with configurable parameters
 - **Multi-instrument trading** support (EURUSD, GBPUSD, USDJPY, etc.)
-- **Live signal generation** from real-time streaming market data
-- **Automatic failover** between WebSocket streaming and REST API polling
+- **Live signal generation** from real-time market data
+- **Production-ready REST API integration** with comprehensive error handling
 
-### 🎯 Current Work: Trading Operations
+### 🔄 In Progress: WebSocket Streaming
+- **Lightstreamer WebSocket integration** - Partially working but unstable
+  - ✅ TLCP protocol implementation
+  - ✅ Session creation and subscription
+  - ✅ Receiving live tick data (EURUSD prices)
+  - ❌ Connection stability issues (CloseRequest 1011 errors)
+  - ❌ Incomplete message parsing (CONF, EOS messages)
+  - ❌ Timestamp parsing issues
+
+### 🎯 Next Work: Complete WebSocket + Trading Operations
+**Current Priority**: Stabilize WebSocket streaming implementation
+- Fix connection stability and message parsing issues
+- Complete TLCP protocol compliance
+- Handle all Lightstreamer message types properly
+
 **Next Priority**: Implement IG deals API for order placement and position management
 - Account and positions synchronization via IG API
 - Order placement and management (market, limit, stop orders)
@@ -79,6 +91,8 @@ cabal run tempeh -- live GBPUSD rsi 14 70 30
 ```
 
 **Demo/Real Mode**: Tests use `config/test.json` (safe demo). For live trading, ensure `config/local.json` contains valid IG credentials.
+
+**⚠️ Note**: WebSocket streaming is currently unstable. Live trading uses REST API polling as primary data source with WebSocket as experimental feature.
 
 ## 📊 Data Requirements
 

@@ -16,7 +16,7 @@ import Data.Time
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Data.Aeson (encode, decode)
+import Data.Aeson (encode, decode, object, (.=))
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Map as Map
 import Network.HTTP.Types
@@ -129,7 +129,18 @@ createTestConnection = do
 -- Mock HTTP server applications
 successfulIGApiApp :: Application
 successfulIGApiApp request respond = do
-  let response = encode sampleIGMarket
+  -- Create the proper nested JSON structure that IGMarket expects
+  let response = encode $ object
+        [ "instrument" .= object
+            [ "epic" .= marketEpic sampleIGMarket
+            , "name" .= marketInstrument sampleIGMarket
+            ]
+        , "snapshot" .= object
+            [ "bid" .= marketBid sampleIGMarket
+            , "offer" .= marketAsk sampleIGMarket
+            , "updateTime" .= marketUpdateTime sampleIGMarket
+            ]
+        ]
   respond $ responseLBS status200 [("Content-Type", "application/json")] response
 
 timeoutApp :: Application

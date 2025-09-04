@@ -190,6 +190,8 @@ createMockLSConnection :: IO LSConnection
 createMockLSConnection = do
   subscriptions <- newTVarIO Map.empty
   nextSubId <- newTVarIO 1
+  tableMap <- newTVarIO Map.empty
+  pendingSubs <- newTVarIO []
   return LSConnection
     { lsConnection = undefined  -- We won't use the actual WebSocket connection in tests
     , lsSessionId = Just "TEST_SESSION"
@@ -198,6 +200,8 @@ createMockLSConnection = do
     , lsNextSubId = nextSubId
     , lsHeartbeatAsync = Nothing
     , lsMessageAsync = Nothing
+    , lsTableMap = tableMap
+    , lsPendingSubs = pendingSubs
     }
 
 testHandleValidTick :: Assertion

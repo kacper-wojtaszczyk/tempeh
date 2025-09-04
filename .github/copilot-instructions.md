@@ -4,8 +4,8 @@
 
 **Tempeh** is a production-ready Haskell forex trading bot following clean architecture patterns. This is both a learning project and serious automated trading system.
 
-**Current Phase**: WebSocket Streaming ✅ → Trading Operations (IG deals API integration)  
-**Status**: 332/332 tests passing, live market data operational
+**Current Phase**: WebSocket Streaming (🔄 In Progress) → Trading Operations (IG deals API integration)  
+**Status**: 332/332 tests passing, live market data partially operational
 
 ## 🏗️ Architecture [ESSENTIAL]
 
@@ -36,6 +36,7 @@
 
 ### Documentation
 - `docs/adr/ADR-002-IG-broker-integration.md` - Current implementation status
+- `docs/lightstreamer/docs.md` - TLCP protocol documentation for WebSocket streaming
 
 ## 🔧 Development Guidelines [ESSENTIAL]
 
@@ -68,10 +69,19 @@ Read the file to check results. Retry up to 3 times if empty/incomplete.
 - Backtesting engine with multiple strategies
 - IG authentication and session management
 - REST API polling with error recovery
-- WebSocket streaming (Lightstreamer TLCP)
 - Live data pipeline: Tick → Candle → Signal → Strategy
 
+### In Progress 🔄
+- **WebSocket streaming (Lightstreamer TLCP)**: Partially working but unstable
+  - ✅ TLCP protocol implementation
+  - ✅ Session creation and subscription
+  - ✅ Receiving live tick data (EURUSD prices)
+  - ❌ Connection stability issues (CloseRequest 1011 errors)
+  - ❌ Incomplete message parsing (CONF, EOS messages)
+  - ❌ Timestamp parsing issues
+
 ### Next Phase 🎯
+- Complete WebSocket streaming stabilization
 - IG deals API for order placement
 - Position management and risk controls
 - Account synchronization
