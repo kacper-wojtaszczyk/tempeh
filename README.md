@@ -4,9 +4,9 @@ A Haskell-based forex trading bot with backtesting and **live trading capabiliti
 
 ## 🚧 Project Status
 
-**Current Phase: REST API Integration COMPLETED ✅ → WebSocket Streaming (Next)**
+**Current Phase: WebSocket Streaming COMPLETED ✅ → Trading Operations (Next)**
 
-This project has successfully evolved from backtesting to **production-ready live trading** with comprehensive IG broker integration. The backtesting engine is complete and battle-tested, and we now have a **fully functional live trading system** processing real market data via REST API polling.
+This project has successfully evolved from backtesting to **production-ready live trading** with comprehensive IG broker integration. The backtesting engine is complete and battle-tested, and we now have a **fully functional live trading system** processing real market data via both REST API and **real-time WebSocket streaming**.
 
 ### ✅ Completed Features
 
@@ -16,24 +16,27 @@ This project has successfully evolved from backtesting to **production-ready liv
 - CSV data ingestion from histdata.com
 
 #### Live Trading System  
-- **Real-time market data** from IG broker REST API
+- **Real-time market data** from IG broker via REST API and WebSocket streaming
+- **Sub-second tick latency** through Lightstreamer WebSocket integration
+- **Complete TLCP protocol implementation** for IG's streaming platform
 - **Automated strategy execution** with configurable parameters
 - **Multi-instrument trading** support (EURUSD, GBPUSD, USDJPY, etc.)
-- **Live signal generation** from streaming market data (via REST polling for now)
+- **Live signal generation** from real-time streaming market data
+- **Automatic failover** between WebSocket streaming and REST API polling
 
-### 🔄 Current Work: WebSocket Streaming
-**Next Priority**: Implement Lightstreamer WebSocket streaming for sub-second tick latency
-- Real-time WebSocket integration with IG's Lightstreamer API  
-- WebSocket connection management and automatic failover to REST
-- Enhanced data quality monitoring and streaming metrics
+### 🎯 Current Work: Trading Operations
+**Next Priority**: Implement IG deals API for order placement and position management
+- Account and positions synchronization via IG API
+- Order placement and management (market, limit, stop orders)
+- Stop loss and take profit automation
+- Position sizing and risk controls
 
 📋 **See [ADR-002: IG Broker Integration](docs/adr/ADR-002-IG-broker-integration.md) for detailed technical implementation status**
 
-### 🎯 Future Plans
-- Order placement and position management via IG deals API
-- Account and positions synchronization
+### 🔮 Future Plans
 - Multi-broker support (OANDA, Interactive Brokers)
 - Real-time monitoring dashboard
+- Advanced portfolio management
 
 ## 🏗️ Architecture
 

@@ -18,6 +18,7 @@ import Data.Time.Format (formatTime, defaultTimeLocale)
 import Control.Concurrent (threadDelay)
 
 import Adapter.BrokerDataProvider
+import Adapter.IG.Streaming (instrumentToIGEpic)
 import Domain.Services.LiveDataService
 import Domain.Types
 import Util.Config
@@ -334,11 +335,11 @@ testDataQualityMetrics = do
 testIGEpicMapping :: Assertion
 testIGEpicMapping = do
   -- Test common forex pairs
-  instrumentToIGEpic (Instrument "EURUSD") @?= Just "CS.D.EURUSD.CFD.IP"
-  instrumentToIGEpic (Instrument "GBPUSD") @?= Just "CS.D.GBPUSD.CFD.IP"
-  instrumentToIGEpic (Instrument "USDJPY") @?= Just "CS.D.USDJPY.CFD.IP"
-  instrumentToIGEpic (Instrument "AUDUSD") @?= Just "CS.D.AUDUSD.CFD.IP"
-  instrumentToIGEpic (Instrument "USDCAD") @?= Just "CS.D.USDCAD.CFD.IP"
+  instrumentToIGEpic (Instrument "EURUSD") @?= Just "CS.D.EURUSD.MINI.IP"
+  instrumentToIGEpic (Instrument "GBPUSD") @?= Just "CS.D.GBPUSD.MINI.IP"
+  instrumentToIGEpic (Instrument "USDJPY") @?= Just "CS.D.USDJPY.MINI.IP"
+  instrumentToIGEpic (Instrument "AUDUSD") @?= Just "CS.D.AUDUSD.MINI.IP"
+  instrumentToIGEpic (Instrument "USDCAD") @?= Just "CS.D.USDCAD.MINI.IP"
 
 -- Helper function for approximate floating-point equality (if not already defined)
 assertApproxEqual :: String -> Double -> Double -> Double -> Assertion

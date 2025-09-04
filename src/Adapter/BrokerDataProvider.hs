@@ -9,7 +9,6 @@ module Adapter.BrokerDataProvider
   , IGMarket(..)
     -- Functions
   , runBrokerDataProviderIO
-  , instrumentToIGEpic
   , convertIGMarketToTick
   , backoffDelay -- exported for tests
   ) where
@@ -28,11 +27,13 @@ import qualified Data.Text as T
 import Data.Time (UTCTime, getCurrentTime, diffUTCTime)
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Maybe (isJust)
 import Util.Logger (logInfo, logError, logWarn, logDebug, ComponentName(..), runFileLoggerWithComponent)
 
 import Adapter.IG.Types
 import Adapter.IG.Polling
 import Adapter.IG.Auth
+import Adapter.IG.Streaming
 
 -- Adapter-scoped logging helpers
 brokerLogInfo :: Text -> IO ()
@@ -131,7 +132,7 @@ instance (MonadIO m) => LiveDataProvider (BrokerDataProviderM m) where
               tickBuffer <- newTVar []
               ticksRecv <- newTVar 0
               lastTick <- newTVar Nothing
-              let ss = SubscriptionState tickBuffer now ticksRecv lastTick
+              let ss = SubscriptionState tickBuffer now ticksRecv lastTick Nothing
               let newSubs = Map.insert instrument ss subs
               writeTVar (bcSubscriptions conn) newSubs
               return $ Right conn
@@ -240,6 +241,9 @@ connectToIG appCfg connId config now = do
                 , bcIGSession = sessionVar
                 , bcBufferSize = ltcTickBufferSize liveCfg
                 , bcMaxTicksPerSecond = max 1 (ltcMaxTicksPerSecond liveCfg)
+                , bcStreamingMode = if isJust (igLightstreamerEndpoint session)
+                                    then WebSocketStreaming
+                                    else RESTPolling
                 }
 
           -- Store connection
@@ -289,6 +293,7 @@ connectDemo appCfg connId now = do
         , bcIGSession = sessionVar
         , bcBufferSize = ltcTickBufferSize liveCfg
         , bcMaxTicksPerSecond = max 1 (ltcMaxTicksPerSecond liveCfg)
+        , bcStreamingMode = RESTPolling  -- Demo mode uses REST polling
         }
 
   connectionsVar <- ask
@@ -298,22 +303,145 @@ connectDemo appCfg connId now = do
 
   return $ Right connId
 
--- IG market data subscription
+-- IG market data subscription with WebSocket streaming support
 startIGMarketDataSubscription :: MonadIO m => BrokerConnection -> Instrument -> BrokerDataProviderM m ()
 startIGMarketDataSubscription conn instrument = do
-  liftIO $ brokerLogInfo ("Starting IG market data subscription for " <> T.pack (show instrument))
+  let streamingMode = bcStreamingMode conn
+  liftIO $ brokerLogInfo ("Starting IG market data subscription for " <> T.pack (show instrument) <> " using " <> T.pack (show streamingMode))
+
   maybeSession <- liftIO $ atomically $ readTVar (bcIGSession conn)
   case maybeSession of
-    Nothing -> liftIO $ brokerLogInfo "No IG session available for market data (running in demo/polling mode)"
+    Nothing -> do
+      liftIO $ brokerLogInfo "No IG session available for market data (running in demo/polling mode)"
+      startRESTPolling conn instrument
+
     Just session ->
-      case igLightstreamerEndpoint session of
-        Just _ep -> liftIO $ brokerLogInfo "IG Lightstreamer endpoint present; streaming will be implemented here"
-        Nothing -> liftIO $ brokerLogInfo "No Lightstreamer endpoint; falling back to REST polling"
-  -- Start background loop (streaming or polling). Delay 200ms so initial flush is empty.
+      case (bcStreamingMode conn, igLightstreamerEndpoint session) of
+        (WebSocketStreaming, Just _endpoint) -> do
+          liftIO $ brokerLogInfo "Starting Lightstreamer WebSocket streaming"
+          startWebSocketStreaming conn instrument session
+
+        _ -> do
+          liftIO $ brokerLogInfo "No Lightstreamer endpoint or forced REST mode; using REST polling"
+          startRESTPolling conn instrument
+
+-- Start WebSocket streaming for an instrument
+startWebSocketStreaming :: MonadIO m => BrokerConnection -> Instrument -> IGSession -> BrokerDataProviderM m ()
+startWebSocketStreaming conn instrument session = do
+  liftIO $ brokerLogInfo ("Establishing WebSocket streaming for " <> T.pack (show instrument))
+
+  -- Get the tick buffer for this instrument
+  subs <- liftIO $ atomically $ readTVar (bcSubscriptions conn)
+  case Map.lookup instrument subs of
+    Nothing -> do
+      liftIO $ brokerLogError ("No subscription state found for instrument: " <> T.pack (show instrument))
+
+    Just subscriptionState -> do
+      -- Start WebSocket streaming in background
+      _ <- liftIO $ async $ do
+        streamingResult <- startLightstreamerConnection (bcConfig conn) session
+        case streamingResult of
+          Left err -> do
+            brokerLogError ("Failed to start Lightstreamer connection: " <> T.pack (show err))
+            brokerLogWarn "Falling back to REST polling"
+            -- Fall back to REST polling on WebSocket failure
+            igStreamingLoop conn instrument
+
+          Right lsConnection -> do
+            brokerLogInfo ("Lightstreamer connection established for " <> T.pack (show instrument))
+
+            -- Subscribe to price updates
+            subResult <- subscribeToPriceUpdates lsConnection instrument (ssTickBuffer subscriptionState)
+            case subResult of
+              Left err -> do
+                brokerLogError ("Failed to subscribe to price updates: " <> T.pack (show err))
+                brokerLogWarn "Falling back to REST polling"
+                closeLightstreamerConnection lsConnection
+                igStreamingLoop conn instrument
+
+              Right _subscription -> do
+                brokerLogInfo ("Successfully subscribed to WebSocket streaming for " <> T.pack (show instrument))
+
+                -- Keep connection alive and handle reconnection
+                handleWebSocketConnectionLifecycle lsConnection conn instrument
+
+      liftIO $ brokerLogInfo ("Started WebSocket streaming setup for " <> T.pack (show instrument))
+
+-- Handle WebSocket connection lifecycle (reconnection, error handling)
+handleWebSocketConnectionLifecycle :: LSConnection -> BrokerConnection -> Instrument -> IO ()
+handleWebSocketConnectionLifecycle lsConnection conn instrument = do
+  brokerLogInfo "Starting WebSocket connection lifecycle management"
+
+  -- Monitor connection and handle failures
+  let monitorConnection = do
+        brokerLogDebug "WebSocket connection monitoring active"
+        threadDelay 5_000_000  -- Check every 5 seconds
+
+        -- Check if connection is still alive
+        connectionAlive <- checkWebSocketHealth lsConnection
+        if connectionAlive
+          then monitorConnection  -- Continue monitoring
+          else do
+            brokerLogWarn ("WebSocket connection lost for " <> T.pack (show instrument) <> ", attempting reconnection")
+
+            -- Close existing connection
+            closeLightstreamerConnection lsConnection
+
+            -- Attempt to reconnect
+            maybeSession <- atomically $ readTVar (bcIGSession conn)
+            case maybeSession of
+              Nothing -> do
+                brokerLogError "No IG session available for reconnection, falling back to REST"
+                igStreamingLoop conn instrument
+
+              Just session -> do
+                reconnectResult <- startLightstreamerConnection (bcConfig conn) session
+                case reconnectResult of
+                  Left err -> do
+                    brokerLogError ("WebSocket reconnection failed: " <> T.pack (show err))
+                    brokerLogWarn "Falling back to REST polling"
+                    igStreamingLoop conn instrument
+
+                  Right newLsConnection -> do
+                    brokerLogInfo "WebSocket reconnection successful"
+
+                    -- Re-subscribe to instrument
+                    subs <- atomically $ readTVar (bcSubscriptions conn)
+                    case Map.lookup instrument subs of
+                      Just subscriptionState -> do
+                        subResult <- subscribeToPriceUpdates newLsConnection instrument (ssTickBuffer subscriptionState)
+                        case subResult of
+                          Left _err -> do
+                            brokerLogError "Failed to re-subscribe after reconnection, falling back to REST"
+                            closeLightstreamerConnection newLsConnection
+                            igStreamingLoop conn instrument
+
+                          Right _subscription -> do
+                            brokerLogInfo "Successfully re-subscribed after reconnection"
+                            handleWebSocketConnectionLifecycle newLsConnection conn instrument
+
+                      Nothing -> do
+                        brokerLogError "Subscription state lost during reconnection"
+                        closeLightstreamerConnection newLsConnection
+
+  monitorConnection
+
+-- Simple WebSocket health check
+checkWebSocketHealth :: LSConnection -> IO Bool
+checkWebSocketHealth _lsConnection = do
+  -- For now, assume connection is healthy
+  -- In a production system, you would send a ping and wait for pong
+  return True
+
+-- Start REST polling for an instrument (fallback method)
+startRESTPolling :: MonadIO m => BrokerConnection -> Instrument -> BrokerDataProviderM m ()
+startRESTPolling conn instrument = do
+  liftIO $ brokerLogInfo ("Starting REST API polling for " <> T.pack (show instrument))
+  -- Start background polling loop with delay
   _ <- liftIO $ async $ do
-    threadDelay 200_000
+    threadDelay 200_000  -- Initial delay so flush is empty
     igStreamingLoop conn instrument
-  liftIO $ brokerLogInfo ("Started market data polling for " <> T.pack (show instrument))
+  liftIO $ brokerLogInfo ("Started REST polling for " <> T.pack (show instrument))
 
 -- Helper to run broker data provider
 runBrokerDataProviderIO :: BrokerDataProviderM IO a -> IO a

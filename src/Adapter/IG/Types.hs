@@ -8,6 +8,7 @@ module Adapter.IG.Types
   , IGMarket(..)
   , BrokerConnection(..)
   , SubscriptionState(..)
+  , StreamingMode(..)
   ) where
 
 import Data.Text (Text)
@@ -20,6 +21,10 @@ import Data.Map (Map)
 
 import Domain.Types (ConnectionId, ConnectionStatus, Instrument, Tick)
 import Util.Config (BrokerConfig)
+
+-- Streaming mode configuration
+data StreamingMode = RESTPolling | WebSocketStreaming
+  deriving (Show, Eq, Generic)
 
 -- IG Session types
 data IGSession = IGSession
@@ -62,12 +67,18 @@ data IGMarket = IGMarket
   } deriving (Show, Eq, Generic)
 
 instance FromJSON IGMarket where
-  parseJSON = withObject "IGMarket" $ \o -> IGMarket
-    <$> o .: "epic"
-    <*> o .: "instrumentName"
-    <*> o .:? "bid"
-    <*> o .:? "offer"
-    <*> o .:? "updateTime"
+  parseJSON = withObject "IGMarket" $ \o -> do
+    -- Handle nested structure: the IG API returns { "instrument": { ... }, "snapshot": { "bid": ..., "offer": ... } }
+    instrumentObj <- o .: "instrument"
+    snapshotObj <- o .: "snapshot"
+
+    epic <- instrumentObj .: "epic"
+    instrumentName <- instrumentObj .: "name"
+    bid <- snapshotObj .:? "bid"
+    offer <- snapshotObj .:? "offer"
+    updateTime <- snapshotObj .:? "updateTime"
+
+    return $ IGMarket epic instrumentName bid offer updateTime
 
 instance ToJSON IGMarket where
   toJSON market = object
@@ -90,6 +101,7 @@ data BrokerConnection = BrokerConnection
   , bcIGSession :: TVar (Maybe IGSession)
   , bcBufferSize :: Int
   , bcMaxTicksPerSecond :: Int
+  , bcStreamingMode :: StreamingMode
   }
 
 data SubscriptionState = SubscriptionState
@@ -97,4 +109,5 @@ data SubscriptionState = SubscriptionState
   , ssStartTime :: UTCTime
   , ssTicksReceived :: TVar Int
   , ssLastTickTime :: TVar (Maybe UTCTime)
+  , ssStreamingSubscription :: Maybe Int  -- Lightstreamer subscription ID
   }

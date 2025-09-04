@@ -9,7 +9,6 @@ module Adapter.IG.Polling
   , pollIGMarketData
   , mockTickFetch
   , convertIGMarketToTick
-  , instrumentToIGEpic
   , backoffDelay
   , secondsToMicros
   ) where
@@ -18,6 +17,7 @@ import Domain.Types
 import Util.Config (BrokerConfig(..), ReconnectPolicy(..))
 import Util.Error (Result, TempehError(..), BrokerErrorDetails(..), brokerError, getRecoveryStrategy, RecoveryStrategy(..), ErrorSeverity(..))
 import Adapter.IG.Types
+import Adapter.IG.Streaming (instrumentToIGEpic)
 import Control.Monad.IO.Class (liftIO)
 import Control.Concurrent.STM
 import Control.Concurrent (threadDelay)
@@ -179,16 +179,6 @@ convertIGMarketToTick timestamp instrument igMarket = Tick
   , tAsk = Price $ realToFrac $ maybe 0 id (marketAsk igMarket)
   , tVolume = Nothing  -- IG doesn't provide volume in basic market data
   }
-
--- Map instruments to IG epics (market identifiers)
-instrumentToIGEpic :: Instrument -> Maybe Text
-instrumentToIGEpic (Instrument instr) = case instr of
-  "EURUSD" -> Just "CS.D.EURUSD.CFD.IP"
-  "GBPUSD" -> Just "CS.D.GBPUSD.CFD.IP"
-  "USDJPY" -> Just "CS.D.USDJPY.CFD.IP"
-  "AUDUSD" -> Just "CS.D.AUDUSD.CFD.IP"
-  "USDCAD" -> Just "CS.D.USDCAD.CFD.IP"
-  _ -> Nothing  -- Add more instruments as needed
 
 -- Helper functions
 secondsToMicros :: NominalDiffTime -> Int

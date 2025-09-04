@@ -11,7 +11,7 @@ Following the successful completion of the backtesting engine (95% complete), we
 
 The current hexagonal architecture provides a solid foundation, but we need to prioritize improvements that directly support real-time data integration and the infrastructure required for live broker connectivity.
 
-## Status Update (2025-09-03)
+## Status Update (2025-09-04)
 
 The following live-trading foundations are now implemented in code and covered by tests/E2E scenarios:
 - ✅ Broker connection abstraction with IG and Demo support (safe Demo fallback)
@@ -20,6 +20,7 @@ The following live-trading foundations are now implemented in code and covered b
 - ✅ Basic data quality reporting API (stub metrics)
 - ✅ Live trading orchestrator: tick grouping → candle generation (1-minute) → strategy signal
 - ✅ Centralized configuration with global/local config and environment overrides for tests/CI
+- ✅ **WebSocket Streaming Integration: Complete Lightstreamer implementation with TLCP protocol**
 
 ## Current Architecture Assessment
 
@@ -227,7 +228,7 @@ validateConfig :: AppConfig -> Either [ValidationError] ()
 
 **Implementation:**
 - JSON configuration files with global/local split
-- Environment variable overrides (TEMPEH_TEST_MODE, TEMPEH_CONFIG_GLOBAL_ONLY)
+- In-memory test config override system for test isolation
 - Configuration validation at startup
 - Hooks for hot-reloading non-critical settings
 

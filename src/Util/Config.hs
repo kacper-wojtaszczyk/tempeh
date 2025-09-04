@@ -174,38 +174,14 @@ loadAppConfig = liftIO $ do
   case override of
     Just cfg -> pure (Right cfg)
     Nothing -> do
-      -- Environment flags to control config behavior in tests/CI (kept for backward compatibility)
-      testMode <- getEnvBool "TEMPEH_TEST_MODE"
-      globalOnly <- getEnvBool "TEMPEH_CONFIG_GLOBAL_ONLY"
-
       globalConfigResult <- loadGlobalConfig
       case globalConfigResult of
         Left err -> pure $ Left err
         Right globalConfig -> do
-          baseCfg <- if globalOnly
-            then pure (Right globalConfig)
-            else do
-              localConfigResult <- loadLocalConfig
-              pure $ case localConfigResult of
-                Left _ -> Right globalConfig  -- Local config is optional
-                Right localConfig -> Right $ mergeConfigs globalConfig localConfig
-
-          case baseCfg of
-            Left err -> pure $ Left err
-            Right cfg ->
-              if testMode
-                then pure $ Right $ forceDemoBroker cfg
-                else pure $ Right cfg
-
--- Helper: read boolean environment variable ("1", "true", "yes" treated as True)
-getEnvBool :: String -> IO Bool
-getEnvBool name = do
-  mv <- lookupEnv name
-  pure $ case fmap (map toLower) mv of
-    Just v | v `elem` ["1","true","yes","on"] -> True
-    _ -> False
-  where
-    toLower c = if 'A' <= c && c <= 'Z' then toEnum (fromEnum c + 32) else c
+          localConfigResult <- loadLocalConfig
+          pure $ case localConfigResult of
+            Left _ -> Right globalConfig  -- Local config is optional
+            Right localConfig -> Right $ mergeConfigs globalConfig localConfig
 
 -- Load global configuration (public, versioned)
 loadGlobalConfig :: IO (Either Text AppConfig)

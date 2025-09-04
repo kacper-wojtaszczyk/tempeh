@@ -38,7 +38,6 @@ tests :: TestTree
 tests = testGroup "Adapter.IG.Polling"
   [ testGroup "Basic Polling"
     [ testCase "Mock tick fetch generates valid ticks" testMockTickFetch
-    , testCase "IG epic mapping works correctly" testIGEpicMapping
     , testCase "Market data conversion preserves data" testMarketDataConversion
     , testCase "Backoff delay calculation" testBackoffDelay
     ]
@@ -124,6 +123,7 @@ createTestConnection = do
     , bcIGSession = sessionVar
     , bcBufferSize = 100
     , bcMaxTicksPerSecond = 10
+    , bcStreamingMode = RESTPolling  -- Test connection uses REST polling
     }
 
 -- Mock HTTP server applications
@@ -183,13 +183,6 @@ testMockTickFetch = do
       assertBool "Bid should be positive" (bidPrice > 0)
       assertBool "Ask should be positive" (askPrice > 0)
       assertBool "Ask should be >= bid" (askPrice >= bidPrice)
-
-testIGEpicMapping :: Assertion
-testIGEpicMapping = do
-  instrumentToIGEpic (Instrument "EURUSD") @?= Just "CS.D.EURUSD.CFD.IP"
-  instrumentToIGEpic (Instrument "GBPUSD") @?= Just "CS.D.GBPUSD.CFD.IP"
-  instrumentToIGEpic (Instrument "USDJPY") @?= Just "CS.D.USDJPY.CFD.IP"
-  instrumentToIGEpic (Instrument "UNKNOWN") @?= Nothing
 
 testMarketDataConversion :: Assertion
 testMarketDataConversion = do
@@ -369,7 +362,7 @@ testStreamingLoopUnsubscribe = do
   -- Create subscription
   atomically $ do
     subs <- readTVar (bcSubscriptions conn)
-    ss <- SubscriptionState <$> newTVar [] <*> pure now <*> newTVar 0 <*> newTVar Nothing
+    ss <- SubscriptionState <$> newTVar [] <*> pure now <*> newTVar 0 <*> newTVar Nothing <*> pure Nothing
     writeTVar (bcSubscriptions conn) (Map.insert testInstrument ss subs)
 
   -- Verify subscription exists
