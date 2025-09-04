@@ -17,7 +17,7 @@
 The project follows a three-layer clean architecture pattern:
 
 - **Domain Layer**: Pure business logic, types, and strategies
-- **Application Layer**: Orchestration, CLI interface, and live trading coordination  
+- **Application Layer**: Orchestration, CLI interface, and live trading coordination
 - **Adapters Layer**: Broker connectivity, data providers, and infrastructure
 
 This provides clear separation between business logic and external systems with dependency inversion.
@@ -131,7 +131,7 @@ This is a **learning project** emphasizing:
 
 The human prefers:
 - **Collaborative approach**: Discussion and objection to ideas that don't follow Haskell best practices
-- **High-level focus**: Prefer architectural discussions over low-level implementation details  
+- **High-level focus**: Prefer architectural discussions over low-level implementation details
 - **Learning-oriented**: This is a hobby project for fun and learning, not production pressure
 - **Quality over speed**: Take time to do things properly rather than rush
 
