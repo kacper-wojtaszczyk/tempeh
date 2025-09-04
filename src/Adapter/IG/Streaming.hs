@@ -108,14 +108,8 @@ streamLogDebug msg = runFileLoggerWithComponent (ComponentName "STREAM") $ logDe
 -- Main streaming connection function
 startLightstreamerConnection :: BrokerConfig -> IGSession -> IO (Result LSConnection)
 startLightstreamerConnection config session = do
-  streamLogInfo "Establishing Lightstreamer WebSocket connection"
+  streamLogInfo "Establishing Lightstreamer WebSocket connection with TLCP authentication"
 
-  -- TEMPORARY: Disable WebSocket streaming until TLCP protocol is properly implemented
-  -- The current implementation has issues with the Lightstreamer handshake process
-  streamLogWarn "WebSocket streaming temporarily disabled - using REST polling fallback"
-  return $ Left $ brokerError "WebSocket streaming temporarily disabled - falling back to REST polling"
-
-  {- DISABLED CODE - TO BE RE-ENABLED ONCE TLCP PROTOCOL IS FIXED
   case igLightstreamerEndpoint session of
     Nothing -> do
       streamLogError "No Lightstreamer endpoint in IG session"
@@ -124,57 +118,98 @@ startLightstreamerConnection config session = do
     Just lsEndpoint -> do
       streamLogInfo $ "Connecting to Lightstreamer: " <> lsEndpoint
 
-      -- Parse the endpoint URL
-      let wsUrl = if "https://" `T.isPrefixOf` lsEndpoint
-                  then T.replace "https://" "wss://" lsEndpoint <> "/lightstreamer"
-                  else lsEndpoint <> "/lightstreamer"
-
-      streamLogDebug $ "WebSocket URL: " <> wsUrl
-
-      -- Establish WebSocket connection
-      result <- try $ connectToLightstreamer wsUrl
+      -- Establish WebSocket connection with proper error handling
+      result <- try $ establishLightstreamerConnection lsEndpoint session
       case result of
         Left (ex :: SomeException) -> do
-          streamLogError $ "WebSocket connection failed: " <> T.pack (show ex)
-          return $ Left $ brokerError $ "WebSocket connection failed: " <> T.pack (show ex)
+          streamLogError $ "Lightstreamer connection failed: " <> T.pack (show ex)
+          return $ Left $ brokerError $ "Lightstreamer connection failed: " <> T.pack (show ex)
 
-        Right conn -> do
-          streamLogInfo "WebSocket connection established"
+        Right lsConn -> do
+          streamLogInfo "Lightstreamer connection ready"
+          return $ Right lsConn
 
-          -- Initialize Lightstreamer connection state
-          subscriptions <- newTVarIO Map.empty
-          nextSubId <- newTVarIO 1
+-- Establish complete Lightstreamer connection with proper TLCP protocol
+establishLightstreamerConnection :: Text -> IGSession -> IO LSConnection
+establishLightstreamerConnection lsEndpoint igSession = do
+  -- Parse the endpoint URL to extract host
+  let host = T.unpack $ T.replace "https://" "" $ T.replace "http://" "" lsEndpoint
+      path = "/lightstreamer"
 
-          let lsConn = LSConnection
-                { lsConnection = conn
-                , lsSessionId = Nothing
-                , lsControlUrl = lsEndpoint
-                , lsSubscriptions = subscriptions
-                , lsNextSubId = nextSubId
-                , lsHeartbeatAsync = Nothing
-                , lsMessageAsync = Nothing
-                }
+  streamLogDebug $ "Connecting to host: " <> T.pack host <> ", path: " <> T.pack path
+  streamLogDebug $ "Using TLCP-2.4.0.lightstreamer.com subprotocol"
 
-          -- Create Lightstreamer session
-          sessionResult <- createLightstreamerSession lsConn session
-          case sessionResult of
-            Left err -> do
-              streamLogError $ "Failed to create Lightstreamer session: " <> T.pack (show err)
-              return $ Left err
+  streamLogInfo "Starting WebSocket connection with TLCP subprotocol..."
 
-            Right sessionId -> do
-              streamLogInfo $ "Lightstreamer session created: " <> sessionId
+  -- Create WebSocket connection with TLCP subprotocol via header
+  let connectionOptions = WS.defaultConnectionOptions { WS.connectionCompressionOptions = WS.NoCompression }
+      headers = [("Sec-WebSocket-Protocol", BS8.pack "TLCP-2.4.0.lightstreamer.com")]
 
-              let connWithSession = lsConn { lsSessionId = Just sessionId }
+  Wuss.runSecureClientWith host 443 path connectionOptions headers $ \conn -> do
+    streamLogInfo "WebSocket handshake completed successfully with TLCP!"
 
-              -- Start message handler
-              msgAsync <- async $ handleLightstreamerMessages connWithSession
+    -- Initialize connection state
+    subscriptions <- newTVarIO Map.empty
+    nextSubId <- newTVarIO 1
 
-              let finalConn = connWithSession { lsMessageAsync = Just msgAsync }
+    -- Create Lightstreamer session using TLCP protocol
+    streamLogDebug "Starting TLCP session creation"
+    sessionResult <- createLightstreamerSessionTLCP conn igSession lsEndpoint
+    case sessionResult of
+      Left err -> do
+        streamLogError $ "Failed to create Lightstreamer session: " <> T.pack (show err)
+        error $ "Session creation failed: " <> show err
+      Right sessionId -> do
+        streamLogInfo $ "TLCP session created successfully: " <> sessionId
+        let lsConn = LSConnection
+              { lsConnection = conn
+              , lsSessionId = Just sessionId
+              , lsControlUrl = lsEndpoint
+              , lsSubscriptions = subscriptions
+              , lsNextSubId = nextSubId
+              , lsHeartbeatAsync = Nothing
+              , lsMessageAsync = Nothing
+              }
+        _ <- async $ handleLightstreamerMessages lsConn
+        return lsConn
 
-              streamLogInfo "Lightstreamer connection ready"
-              return $ Right finalConn
-  -}
+-- Percent-encode reserved characters in TLCP parameter values (minimal)
+percentEncodeTLCP :: Text -> Text
+percentEncodeTLCP = T.replace "|" "%7C" . T.replace " " "%20"
+
+-- Create Lightstreamer session using proper TLCP protocol
+createLightstreamerSessionTLCP :: WS.Connection -> IGSession -> Text -> IO (Result Text)
+createLightstreamerSessionTLCP conn igSession _lsEndpoint = do
+  streamLogInfo "Creating TLCP session with IG authentication"
+
+  let authPassword = percentEncodeTLCP ("CST-" <> igCST igSession <> "|XST-" <> igXSecurityToken igSession)
+      authUser = igCST igSession
+      params = T.intercalate "&"
+        [ "LS_cid=mgQkwtwdysogQz2BJ4Ji%20kOj2Bg"
+        , "LS_user=" <> authUser
+        , "LS_password=" <> authPassword
+        , "LS_keepalive_millis=5000"
+        ]
+      sessionMsg = "create_session\r\n" <> params <> "\r\n"
+
+  streamLogDebug "Sending TLCP session creation request"
+  WS.sendTextData conn sessionMsg
+
+  -- Wait for initial response line (CONOK, ...)
+  resp <- WS.receiveData conn
+  let responseText = TE.decodeUtf8 $ LBS.toStrict resp
+  streamLogDebug $ "TLCP session response: " <> responseText
+
+  case T.splitOn "," (T.strip responseText) of
+    ("CONOK":sessionId:_) | not (T.null sessionId) -> do
+      streamLogInfo $ "TLCP session created successfully: " <> sessionId
+      return $ Right sessionId
+    ("CONERR":err:_) -> do
+      streamLogError $ "TLCP session creation failed: " <> err
+      return $ Left $ brokerError $ "Session creation failed: " <> err
+    _ -> do
+      streamLogError $ "Unexpected TLCP response: " <> responseText
+      return $ Left $ brokerError $ "Unexpected session creation response: " <> responseText
 
 -- Connect to Lightstreamer WebSocket
 connectToLightstreamer :: Text -> IO WS.Connection

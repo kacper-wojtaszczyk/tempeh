@@ -46,6 +46,12 @@ cabal run tempeh -- backtest EURUSD 2025 1 2025 3 ema 5 20 0.0001
 cabal run tempeh -- live EURUSD ema 5 20 0.0001
 ```
 
+### macOS Compatibility [CRITICAL]
+**IMPORTANT**: Do not use `timeout` command - it's not available on macOS. Use alternative approaches:
+- For testing timeouts: Use Ctrl+C to interrupt manually
+- For background processes: Use `&` and `kill` if needed
+- For bounded execution: Design tests with internal timeouts
+
 ### File Reading Protocol [CRITICAL]
 **IMPORTANT**: Always read files completely. Never use `endLineNumberBaseZero = -1`. Read large sections for complete context.
 
