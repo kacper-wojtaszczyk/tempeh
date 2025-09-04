@@ -100,7 +100,7 @@ data BrokerConnection = BrokerConnection
   , bcHeartbeatAsync :: Maybe (Async ())
   , bcIGSession :: TVar (Maybe IGSession)
   , bcBufferSize :: Int
-  , bcMaxTicksPerSecond :: Int
+  , bcMaxTicksPerSecond :: Double  -- Changed from Int to Double for fractional rates
   , bcStreamingMode :: StreamingMode
   }
 

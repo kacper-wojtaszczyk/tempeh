@@ -194,7 +194,7 @@ instance (MonadIO m) => LiveDataProvider (BrokerDataProviderM m) where
       Right (ticksRecv, lastTk, start, maxTPS) -> do
         now <- liftIO getCurrentTime
         let elapsed = realToFrac (now `diffUTCTime` start) :: Double
-            expected = max 0 (floor (elapsed * fromIntegral (max 1 maxTPS)))
+            expected = max 0 (floor (elapsed * maxTPS))  -- maxTPS is now Double
             latencyMs = fmap (\t -> realToFrac (realToFrac (now `diffUTCTime` t) * 1000.0) :: Double) lastTk
             scoreBase = if expected <= 0 then 1.0 else min 1.0 (fromIntegral ticksRecv / fromIntegral expected)
             score = max 0 (min 1 scoreBase)
@@ -240,7 +240,7 @@ connectToIG appCfg connId config now = do
                 , bcHeartbeatAsync = Nothing
                 , bcIGSession = sessionVar
                 , bcBufferSize = ltcTickBufferSize liveCfg
-                , bcMaxTicksPerSecond = max 1 (ltcMaxTicksPerSecond liveCfg)
+                , bcMaxTicksPerSecond = max 0.1 (ltcMaxTicksPerSecond liveCfg)  -- Changed to work with Double and minimum 0.1/sec
                 , bcStreamingMode = if isJust (igLightstreamerEndpoint session)
                                     then WebSocketStreaming
                                     else RESTPolling
@@ -292,7 +292,7 @@ connectDemo appCfg connId now = do
         , bcHeartbeatAsync = Nothing
         , bcIGSession = sessionVar
         , bcBufferSize = ltcTickBufferSize liveCfg
-        , bcMaxTicksPerSecond = max 1 (ltcMaxTicksPerSecond liveCfg)
+        , bcMaxTicksPerSecond = max 0.1 (ltcMaxTicksPerSecond liveCfg)  -- Changed to work with Double
         , bcStreamingMode = RESTPolling  -- Demo mode uses REST polling
         }
 

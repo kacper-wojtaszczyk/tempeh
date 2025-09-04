@@ -122,7 +122,7 @@ createTestConnection = do
     , bcHeartbeatAsync = Nothing
     , bcIGSession = sessionVar
     , bcBufferSize = 100
-    , bcMaxTicksPerSecond = 10
+    , bcMaxTicksPerSecond = 10.0  -- Changed from Int to Double
     , bcStreamingMode = RESTPolling  -- Test connection uses REST polling
     }
 

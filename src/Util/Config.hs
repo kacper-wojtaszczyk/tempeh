@@ -120,7 +120,7 @@ instance FromJSON ReconnectPolicy where
 -- Live trading configuration
 data LiveTradingConfig = LiveTradingConfig
   { ltcTickBufferSize :: Int
-  , ltcMaxTicksPerSecond :: Int
+  , ltcMaxTicksPerSecond :: Double  -- Changed from Int to Double for fractional rates
   , ltcHeartbeatInterval :: NominalDiffTime
   , ltcDataQualityThreshold :: Double  -- 0.0-1.0
   , ltcEnablePaperTrading :: Bool
@@ -138,7 +138,7 @@ instance ToJSON LiveTradingConfig where
 instance FromJSON LiveTradingConfig where
   parseJSON = withObject "LiveTradingConfig" $ \v -> LiveTradingConfig
     <$> v .: "tickBufferSize"
-    <*> v .: "maxTicksPerSecond"
+    <*> v .: "maxTicksPerSecond"  -- Now accepts Double values
     <*> (fromRational . toRational <$> (v .: "heartbeatIntervalSeconds" :: Parser Double))
     <*> v .: "dataQualityThreshold"
     <*> v .: "enablePaperTrading"

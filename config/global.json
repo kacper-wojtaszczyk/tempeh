@@ -25,7 +25,7 @@
   },
   "acLiveTrading": {
     "tickBufferSize": 10000,
-    "maxTicksPerSecond": 1000,
+    "maxTicksPerSecond": 0.4,
     "heartbeatIntervalSeconds": 30.0,
     "dataQualityThreshold": 0.95,
     "enablePaperTrading": true

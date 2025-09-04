@@ -25,9 +25,11 @@ import Control.Exception (try, SomeException, displayException)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import qualified Data.Text.Encoding.Error as T
 import Data.Time (UTCTime, getCurrentTime, diffUTCTime, NominalDiffTime)
 import qualified Data.Map as Map
 import Network.HTTP.Conduit
+import Network.HTTP.Types.Status (status429, status403, status400)
 import Data.Aeson (eitherDecode)
 import qualified Data.ByteString.Lazy as LBS
 import Util.Logger (logInfo, logError, logWarn, logDebug, ComponentName(..), runFileLoggerWithComponent)
@@ -65,7 +67,7 @@ igStreamingLoop conn instrument = do
         then brokerLogInfo ("Subscription removed; stopping streaming for " <> T.pack (show instrument))
         else do
           result <- do
-            mSession <- atomically $ readTVar (bcIGSession conn)
+            mSession <- readTVarIO (bcIGSession conn)
             case mSession of
               Nothing -> mockTickFetch instrument
               Just session -> pollIGMarketData (bcConfig conn) session instrument
@@ -90,7 +92,9 @@ igStreamingLoop conn instrument = do
                     modifyTVar' (ssTicksReceived ss) (+ receivedNow)
                     let lastTime = if null ticks then Nothing else Just (tTime (last ticks))
                     writeTVar (ssLastTickTime ss) lastTime
-              let delayMicros = max 1 (1000000 `div` bcMaxTicksPerSecond conn)
+              let delayMicros = if bcMaxTicksPerSecond conn <= 0
+                                  then 1_000_000  -- Default 1 second if invalid rate
+                                  else floor (1_000_000 / bcMaxTicksPerSecond conn)
               threadDelay delayMicros
               loop 0
 
@@ -162,13 +166,43 @@ pollIGMarketData config session instrument = do
           case result of
             Left (ex :: SomeException) -> return $ Left $ brokerError ("HTTP request failed: " <> T.pack (displayException ex))
             Right response -> do
-              let body = responseBody response
-              case eitherDecode body of
-                Left parseErr -> return $ Left $ brokerError ("Failed to parse IG market data: " <> T.pack parseErr)
-                Right igMarket -> do
-                  now <- getCurrentTime
-                  let tick = convertIGMarketToTick now instrument igMarket
-                  return $ Right [tick]
+              let statusCode = responseStatus response
+                  body = responseBody response
+
+              -- IG-specific rate limiting detection
+              case statusCode of
+                status | statusCode == status403 -> do
+                  -- IG uses 403 for rate limiting - check response body for specific error codes
+                  let bodyText = TE.decodeUtf8With T.lenientDecode (LBS.toStrict body)
+                  if T.isInfixOf "exceeded-api-key-allowance" bodyText ||
+                     T.isInfixOf "rate" (T.toLower bodyText) ||
+                     T.isInfixOf "limit" (T.toLower bodyText) ||
+                     T.isInfixOf "throttl" (T.toLower bodyText)
+                    then do
+                      brokerLogWarn ("IG rate limit detected (403): " <> T.take 200 bodyText)
+                      return $ Left $ brokerError "IG rate limit exceeded - backing off"
+                    else do
+                      brokerLogError ("IG API forbidden (403): " <> T.take 200 bodyText)
+                      return $ Left $ brokerError ("API access forbidden: " <> T.take 200 bodyText)
+                status | statusCode == status429 -> do
+                  -- Standard rate limiting (just in case IG starts using it)
+                  brokerLogWarn "Standard rate limit detected (429), backing off"
+                  return $ Left $ brokerError "Rate limit exceeded - requests too frequent"
+                status | statusCode >= status400 -> do
+                  let bodyText = TE.decodeUtf8With T.lenientDecode (LBS.toStrict body)
+                  brokerLogError ("IG HTTP error " <> T.pack (show statusCode) <> ": " <> T.take 200 bodyText)
+                  return $ Left $ brokerError ("HTTP error " <> T.pack (show statusCode) <> ": " <> T.take 200 bodyText)
+                _ -> do
+                  case eitherDecode body of
+                    Left parseErr -> do
+                      let bodyText = TE.decodeUtf8With T.lenientDecode (LBS.toStrict body)
+                      brokerLogError ("Failed to parse IG market data: " <> T.pack parseErr)
+                      brokerLogError ("Response body: " <> T.take 500 bodyText)
+                      return $ Left $ brokerError ("Failed to parse IG market data: " <> T.pack parseErr)
+                    Right igMarket -> do
+                      now <- getCurrentTime
+                      let tick = convertIGMarketToTick now instrument igMarket
+                      return $ Right [tick]
 
 -- Convert IG market data to our internal tick format
 convertIGMarketToTick :: UTCTime -> Instrument -> IGMarket -> Tick
