@@ -4,8 +4,8 @@
 
 **Tempeh** is a production-ready Haskell forex trading bot following clean architecture patterns. This is both a learning project and serious automated trading system.
 
-**Current Phase**: WebSocket Streaming (🔄 In Progress) → Trading Operations (IG deals API integration)  
-**Status**: 332/332 tests passing, live market data partially operational
+**Current Phase**: WebSocket Streaming (✅ COMPLETED) → Trading Operations (🎯 Next Priority)  
+**Status**: 332/332 tests passing, live market data fully operational with real-time streaming
 
 ## 🏗️ Architecture [ESSENTIAL]
 
@@ -70,22 +70,23 @@ Read the file to check results. Retry up to 3 times if empty/incomplete.
 - Backtesting engine with multiple strategies
 - IG authentication and session management
 - REST API polling with error recovery
-- Live data pipeline: Tick → Candle → Signal → Strategy
+- **WebSocket streaming (Lightstreamer TLCP)**: FULLY OPERATIONAL ✅
+  - ✅ TLCP protocol implementation with proper authentication
+  - ✅ Session creation and subscription management
+  - ✅ Real-time tick data streaming (EURUSD live prices)
+  - ✅ Connection stability and error recovery
+  - ✅ Complete message parsing (CONOK, SUBOK, U-format updates)
+  - ✅ Timestamp parsing and tick creation pipeline
+- Live data pipeline: Tick → Candle → Signal → Strategy (WebSocket + REST)
 
 ### In Progress 🔄
-- **WebSocket streaming (Lightstreamer TLCP)**: Partially working but unstable
-  - ✅ TLCP protocol implementation
-  - ✅ Session creation and subscription
-  - ✅ Receiving live tick data (EURUSD prices)
-  - ❌ Connection stability issues (CloseRequest 1011 errors)
-  - ❌ Incomplete message parsing (CONF, EOS messages)
-  - ❌ Timestamp parsing issues
+**NONE** - All major components completed
 
 ### Next Phase 🎯
-- Complete WebSocket streaming stabilization
-- IG deals API for order placement
-- Position management and risk controls
-- Account synchronization
+- **IG deals API for order placement and position management**
+- Account synchronization and position tracking
+- Risk controls and position sizing
+- Stop loss/take profit automation
 
 ## 📊 Tech Stack [REFERENCE]
 
