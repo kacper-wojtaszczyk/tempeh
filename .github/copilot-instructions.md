@@ -36,7 +36,8 @@
 
 ### Documentation
 - `docs/adr/ADR-002-IG-broker-integration.md` - Current implementation status
-- `docs/lightstreamer/docs.md` - TLCP protocol documentation for WebSocket streaming
+- `docs/streaming/TLCP.md` - Complete TLCP protocol specification
+- `docs/streaming/IG.md` - IG-specific TLCP integration patterns
 
 ## 🔧 Development Guidelines [ESSENTIAL]
 
