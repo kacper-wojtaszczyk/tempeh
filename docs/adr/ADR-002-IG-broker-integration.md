@@ -143,14 +143,14 @@ igStreamingLoop :: BrokerConnection -> Instrument -> IO ()
 
 **📋 CRITICAL RESOURCE: TLCP Protocol Documentation**
 
-The complete TLCP (Text Lightstreamer Client Protocol) specification is documented in `docs/streaming/TLCP.md`. This resource contains:
+The complete TLCP (Text Lightstreamer Client Protocol) specification is documented in `docs/IG/TLCP.md`. This resource contains:
 - Complete request/response message formats with proper URL encoding
 - Parameter specifications for all operations (create_session, bind_session, control operations)
 - Message parsing patterns for notifications (CONOK, REQOK, SUBOK, U-format updates)
 - Error handling and recovery procedures with specific error codes
 - WebSocket-specific TLCP implementation details
 
-**The IG-specific integration patterns are documented in `docs/streaming/IG.md` with proper TLCP formatting.**
+**The IG-specific integration patterns are documented in `docs/IG/streaming.md` with proper TLCP formatting.**
 
 **This documentation is essential for resolving current streaming stability issues.**
 

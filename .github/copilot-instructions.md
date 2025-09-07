@@ -36,8 +36,9 @@
 
 ### Documentation
 - `docs/adr/ADR-002-IG-broker-integration.md` - Current implementation status
-- `docs/streaming/TLCP.md` - Complete TLCP protocol specification
-- `docs/streaming/IG.md` - IG-specific TLCP integration patterns
+- `docs/IG/REST.md` - IG REST API documentation
+- `docs/IG/TLCP.md` - Complete TLCP protocol specification
+- `docs/IG/streaming.md` - IG-specific TLCP integration patterns
 
 ## 🔧 Development Guidelines [ESSENTIAL]
 
