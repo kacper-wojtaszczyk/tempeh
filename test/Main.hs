@@ -18,6 +18,7 @@ import qualified Unit.Adapter.RiskManagerTest
 import qualified Unit.Adapter.BacktestEngineTest
 import qualified Unit.Adapter.IG.PollingTest
 import qualified Unit.Adapter.IG.StreamingTest
+import qualified Unit.Adapter.IG.DealsTest
 import qualified Unit.Util.ConfigTest
 import qualified Unit.Util.ErrorTest
 import qualified Unit.Util.LoggerTest
@@ -26,6 +27,7 @@ import qualified Unit.Util.LoggerTest
 import qualified Integration.BacktestIntegrationTest
 import qualified Integration.StrategyComparisonTest
 import qualified Integration.LiveTradingIntegrationTest
+import qualified Integration.Adapter.IG.DealsIntegrationTest
 
 -- E2E Tests (Few - Complete workflows)
 import qualified E2E.CompleteBacktestTest
@@ -49,6 +51,7 @@ main = do
       [ Integration.BacktestIntegrationTest.tests
       , Integration.StrategyComparisonTest.tests
       , Integration.LiveTradingIntegrationTest.tests
+      , Integration.Adapter.IG.DealsIntegrationTest.dealsIntegrationTests
       ]
     , testGroup "\128315 Unit Tests (Some - Critical Business Logic)"
       [ testGroup "Domain Layer"
@@ -75,6 +78,7 @@ main = do
         , Unit.Adapter.BacktestEngineTest.tests
         , Unit.Adapter.IG.PollingTest.tests
         , Unit.Adapter.IG.StreamingTest.tests
+        , Unit.Adapter.IG.DealsTest.dealsTests
         ]
       , testGroup "Util Layer"
         [ Unit.Util.ConfigTest.tests

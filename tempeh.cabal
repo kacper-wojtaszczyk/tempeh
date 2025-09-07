@@ -32,6 +32,7 @@ library
     , Adapter.IG.Polling
     , Adapter.IG.Auth
     , Adapter.IG.Streaming
+    , Adapter.IG.Deals
 
     -- Strategy Implementations
     , Strategy.EmaCross
@@ -131,6 +132,7 @@ test-suite tempeh-test
     , Unit.Adapter.BacktestEngineTest
     , Unit.Adapter.IG.PollingTest
     , Unit.Adapter.IG.StreamingTest
+    , Unit.Adapter.IG.DealsTest
     , Unit.Util.ConfigTest
     , Unit.Util.ErrorTest
     , Unit.Util.LoggerTest
@@ -138,6 +140,7 @@ test-suite tempeh-test
     , Integration.BacktestIntegrationTest
     , Integration.StrategyComparisonTest
     , Integration.LiveTradingIntegrationTest
+    , Integration.Adapter.IG.DealsIntegrationTest
       -- E2E Tests
     , E2E.CompleteBacktestTest
     , E2E.LiveTradingE2ETest

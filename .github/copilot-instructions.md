@@ -50,20 +50,17 @@ cabal run tempeh -- live EURUSD ema 5 20 0.0001
 ```
 
 ### macOS Compatibility [CRITICAL]
-**IMPORTANT**: Do not use `timeout` command - it's not available on macOS. Use alternative approaches:
-- For testing timeouts: Use Ctrl+C to interrupt manually
-- For background processes: Use `&` and `kill` if needed
-- For bounded execution: Design tests with internal timeouts
+**IMPORTANT**: Do not use `timeout` command - it's not available on macOS. Use `gtimeout` from coreutils instead:
 
 ### File Reading Protocol [CRITICAL]
 **IMPORTANT**: Always read files completely. Never use `endLineNumberBaseZero = -1`. Read large sections for complete context.
 
 ### Terminal Output [CRITICAL]
-**IMPORTANT**: Redirect all command output to files due to access limitations:
+**IMPORTANT**: Redirect all command output to files due to terminal access limitations:
 ```bash
 command 2>&1 | tee ai/output_$(date +%s).txt
 ```
-Read the file to check results. Retry up to 3 times if empty/incomplete.
+Read the file to verify command's success and check results instead of relying on direct terminal access. Retry up to 3 times if empty/incomplete.
 
 ## 🚀 Current Status [ESSENTIAL]
 
