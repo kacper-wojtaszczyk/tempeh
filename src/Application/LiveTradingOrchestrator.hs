@@ -17,7 +17,7 @@ import Domain.Services.LiveDataService
 import Domain.Types
 import Application.Strategy.Types (StrategyParameters(..), StrategyInstance(..), SignalGenerator)
 import Application.Strategy.Registry (StrategyRegistry, createStrategyFromKeyword)
-import Adapter.BrokerDataProvider (BrokerDataProviderM, runBrokerDataProviderIO)
+import Adapter.BrokerDataProvider (BrokerDataProviderM, runBrokerDataProviderIO, executeEnterSignal, executeExitSignal)
 import Util.Config (AppConfig(..), loadAppConfig, LiveTradingConfig(..), defaultAppConfig)
 import Util.Error (Result, TempehError(..), strategyError, configError)
 import Util.Logger (MonadLogger, ComponentName(..), logInfo, logError, logWarn)
@@ -206,8 +206,14 @@ processTicks strategyInstance config connId state = do
 
                 Enter side -> do
                   liftIO $ putStrLn $ "Strategy signal: ENTER " <> show side
-                  -- TODO: Place order through broker API (Phase 4)
-                  liftIO $ putStrLn "Order placement not yet implemented - logging signal only"
+                  -- Execute actual position creation through broker API
+                  let positionSize = 1.0  -- Default position size for now
+                  executeResult <- executeEnterSignal connId (ltcInstrument config) side positionSize
+                  case executeResult of
+                    Left tradeErr -> do
+                      liftIO $ putStrLn $ "Failed to execute ENTER signal: " <> show tradeErr
+                    Right dealRef -> do
+                      liftIO $ putStrLn $ "Successfully executed ENTER signal, deal reference: " <> T.unpack dealRef
                   return state
                     { ltsSignalCount = ltsSignalCount state + length ticks
                     , ltsLastSignalTime = Just now
@@ -215,8 +221,13 @@ processTicks strategyInstance config connId state = do
 
                 Exit -> do
                   liftIO $ putStrLn "Strategy signal: EXIT"
-                  -- TODO: Close position through broker API (Phase 4)
-                  liftIO $ putStrLn "Position closure not yet implemented - logging signal only"
+                  -- Execute actual position closure through broker API
+                  executeResult <- executeExitSignal connId (ltcInstrument config)
+                  case executeResult of
+                    Left tradeErr -> do
+                      liftIO $ putStrLn $ "Failed to execute EXIT signal: " <> show tradeErr
+                    Right dealRef -> do
+                      liftIO $ putStrLn $ "Successfully executed EXIT signal, deal reference: " <> T.unpack dealRef
                   return state
                     { ltsSignalCount = ltsSignalCount state + length ticks
                     , ltsLastSignalTime = Just now

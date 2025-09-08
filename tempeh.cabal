@@ -38,6 +38,7 @@ library
     , Strategy.EmaCross
     , Strategy.RSI
     , Strategy.BollingerBands
+    , Strategy.TimingTest
 
     -- Utilities
     , Util.Config
@@ -124,6 +125,7 @@ test-suite tempeh-test
     , Unit.Strategy.BollingerBands.StrategyTest
     , Unit.Strategy.RSI.IndicatorsTest
     , Unit.Strategy.RSI.StrategyTest
+    , Unit.Strategy.TimingTest.StrategyTest
     , Unit.Application.CLITest
     , Unit.Application.LiveTradingOrchestratorTest
     , Unit.Adapter.CsvDataProviderTest
@@ -140,6 +142,7 @@ test-suite tempeh-test
     , Integration.BacktestIntegrationTest
     , Integration.StrategyComparisonTest
     , Integration.LiveTradingIntegrationTest
+    , Integration.LiveTradingExecutionTest
     , Integration.Adapter.IG.DealsIntegrationTest
       -- E2E Tests
     , E2E.CompleteBacktestTest

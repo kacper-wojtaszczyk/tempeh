@@ -10,6 +10,7 @@ import qualified Unit.Strategy.BollingerBands.IndicatorsTest
 import qualified Unit.Strategy.BollingerBands.StrategyTest
 import qualified Unit.Strategy.RSI.IndicatorsTest
 import qualified Unit.Strategy.RSI.StrategyTest
+import qualified Unit.Strategy.TimingTest.StrategyTest
 import qualified Unit.Application.CLITest
 import qualified Unit.Application.LiveTradingOrchestratorTest
 import qualified Unit.Adapter.CsvDataProviderTest
@@ -27,6 +28,7 @@ import qualified Unit.Util.LoggerTest
 import qualified Integration.BacktestIntegrationTest
 import qualified Integration.StrategyComparisonTest
 import qualified Integration.LiveTradingIntegrationTest
+import qualified Integration.LiveTradingExecutionTest
 import qualified Integration.Adapter.IG.DealsIntegrationTest
 
 -- E2E Tests (Few - Complete workflows)
@@ -51,6 +53,7 @@ main = do
       [ Integration.BacktestIntegrationTest.tests
       , Integration.StrategyComparisonTest.tests
       , Integration.LiveTradingIntegrationTest.tests
+      , Integration.LiveTradingExecutionTest.tests
       , Integration.Adapter.IG.DealsIntegrationTest.dealsIntegrationTests
       ]
     , testGroup "\128315 Unit Tests (Some - Critical Business Logic)"
@@ -66,6 +69,7 @@ main = do
         , Unit.Strategy.BollingerBands.StrategyTest.tests
         , Unit.Strategy.RSI.IndicatorsTest.tests
         , Unit.Strategy.RSI.StrategyTest.tests
+        , Unit.Strategy.TimingTest.StrategyTest.tests
         ]
       , testGroup "Application Layer"
         [ Unit.Application.CLITest.tests

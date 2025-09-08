@@ -1833,9 +1833,107 @@ Body:
 
 ---
 
-## CATEGORY: ACCOUNTS — TRANSACTION HISTORY & ACTIVITY
+## CATEGORY: ACCOUNTS
 
-> These endpoints return transactional, deposit/withdrawal, activity logs and support date ranges and filters.
+> These endpoints return account information, transactional history, deposit/withdrawal records, activity logs and support date ranges and filters.
+
+---
+
+### Endpoint: `GET /accounts` — Version: 1
+
+**Description:** Returns a list of all accounts associated with the logged-in client, including account details, balances, status, and transfer capabilities.
+
+**Method & Path:** GET `/accounts`
+**Headers Required:**
+
+* `X-IG-API-KEY: <string>` — required
+* Token-based: `CST: <string>` and `X-SECURITY-TOKEN: <string>` — required; OR
+* OAuth-based: `Authorization: Bearer <access_token>` and `IG-ACCOUNT-ID: <accountId>` — required
+* `Accept: application/json; charset=UTF-8` — required
+* `Version: 1` — required
+
+**Parameters:** None
+
+**Example Request:**
+
+```
+Headers:
+  X-IG-API-KEY: YOUR_API_KEY
+  CST: AbCdEfGhIjKl...
+  X-SECURITY-TOKEN: XST-987654321
+  Accept: application/json; charset=UTF-8
+  Version: 1
+```
+
+**Example Response:**
+
+```json
+{
+  "accounts": [
+    {
+      "accountId": "ABC123",
+      "accountName": "Demo CFD Account",
+      "accountAlias": "My Trading Account",
+      "accountType": "CFD",
+      "preferred": true,
+      "currency": "USD",
+      "canTransferFrom": true,
+      "canTransferTo": true,
+      "status": "ENABLED",
+      "balance": {
+        "balance": 10000.00,
+        "available": 9500.00,
+        "deposit": 500.00,
+        "profitLoss": 150.00
+      }
+    },
+    {
+      "accountId": "DEF456",
+      "accountName": "Live Spread Bet Account",
+      "accountAlias": "SB Account",
+      "accountType": "SPREADBET",
+      "preferred": false,
+      "currency": "GBP",
+      "canTransferFrom": true,
+      "canTransferTo": false,
+      "status": "ENABLED",
+      "balance": {
+        "balance": 5000.00,
+        "available": 4800.00,
+        "deposit": 200.00,
+        "profitLoss": -50.00
+      }
+    }
+  ]
+}
+```
+
+**Response Fields (detailed breakdown):**
+
+* `accounts` — array — list of account objects, each containing:
+  * `accountId` — string — unique account identifier (e.g., "ABC123")
+  * `accountName` — string — display name of the account
+  * `accountAlias` — string — user-defined alias for the account
+  * `accountType` — enum — account type: `CFD` | `PHYSICAL` | `SPREADBET`
+  * `preferred` — boolean — true if this is the default login account
+  * `currency` — string — account base currency (e.g., "USD", "GBP", "EUR")
+  * `canTransferFrom` — boolean — true if funds can be transferred from this account
+  * `canTransferTo` — boolean — true if funds can be transferred to this account
+  * `status` — enum — account status: `ENABLED` | `DISABLED` | `SUSPENDED_FROM_DEALING`
+  * `balance` — object — account balance information:
+    * `balance` — number — total balance of funds in the account
+    * `available` — number — amount available for trading (balance minus margin requirements)
+    * `deposit` — number — minimum deposit amount required for margins
+    * `profitLoss` — number — current unrealized profit and loss amount
+
+**Return Codes:**
+
+* 200 OK — accounts list returned successfully
+* 400 Bad Request — `error.public-api.failure.encryption.required`, `error.request.invalid.date-range`, `error.security.api-key-missing`, `invalid.input`
+* 401 Unauthorized — `error.public-api.failure.kyc.required`, `error.public-api.failure.missing.credentials`, `error.public-api.failure.pending.agreements.required`, `error.public-api.failure.preferred.account.disabled`, `error.public-api.failure.preferred.account.not.set`, `error.security.account-token-invalid`, `error.security.account-token-missing`, `error.security.client-token-invalid`, `error.security.client-token-missing`, `error.security.oauth-token-invalid`
+* 403 Forbidden — `endpoint.unavailable.for.api-key`, `error.public-api.exceeded-account-allowance`, `error.public-api.exceeded-account-historical-data-allowance`, `error.public-api.exceeded-account-trading-allowance`, `error.public-api.exceeded-api-key-allowance`, `error.public-api.failure.stockbroking-not-supported`, `error.security.api-key-disabled`, `error.security.api-key-invalid`, `error.security.api-key-restricted`, `error.security.api-key-revoked`
+* 404 Not Found — `invalid.url`
+* 500 Internal Server Error — `system.error`
 
 ---
 
@@ -1947,7 +2045,7 @@ Path:
 
 * `X-IG-API-KEY: <string>`
 * Token-based: `CST: <string>` and `X-SECURITY-TOKEN: <string>`; OR
-* OAuth-based: `Authorization: Bearer <access_token>` and `IG-ACCOUNT-ID: <accountId>`
+* OAuth: `Authorization: Bearer <access_token>` and `IG-ACCOUNT-ID: <accountId>`
 * `Accept: application/json; charset=UTF-8`
 * `Version: 2`
 

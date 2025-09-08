@@ -11,6 +11,9 @@ module Adapter.BrokerDataProvider
   , runBrokerDataProviderIO
   , convertIGMarketToTick
   , backoffDelay -- exported for tests
+    -- Trading execution
+  , executeEnterSignal
+  , executeExitSignal
   ) where
 
 import Domain.Services.LiveDataService
@@ -34,6 +37,10 @@ import Adapter.IG.Types
 import Adapter.IG.Polling
 import Adapter.IG.Auth
 import Adapter.IG.Streaming
+import Adapter.IG.Deals (createPosition, closePosition, getDealConfirmation)
+import qualified Adapter.IG.Deals as IGDeals
+import qualified Data.Scientific as Scientific
+import Data.Scientific (Scientific)
 
 -- Adapter-scoped logging helpers
 brokerLogInfo :: Text -> IO ()
@@ -448,3 +455,159 @@ runBrokerDataProviderIO :: BrokerDataProviderM IO a -> IO a
 runBrokerDataProviderIO action = do
   connectionsVar <- newTVarIO Map.empty
   runReaderT (runBrokerDataProvider action) connectionsVar
+
+-- Trading execution functions
+executeEnterSignal :: (MonadIO m) => ConnectionId -> Instrument -> Domain.Types.Side -> Double -> BrokerDataProviderM m (Result Text)
+executeEnterSignal connId instrument side positionSize = do
+  liftIO $ brokerLogInfo ("Executing ENTER signal: " <> T.pack (show side) <> " " <> T.pack (show positionSize) <> " of " <> T.pack (show instrument))
+
+  connectionsVar <- ask
+  maybeConn <- liftIO $ atomically $ do
+    connections <- readTVar connectionsVar
+    return $ Map.lookup connId connections
+
+  case maybeConn of
+    Nothing -> do
+      liftIO $ brokerLogError ("Connection not found: " <> T.pack (show connId))
+      return $ Left $ brokerError ("Connection not found: " <> T.pack (show connId))
+
+    Just conn -> do
+      maybeSession <- liftIO $ atomically $ readTVar (bcIGSession conn)
+      case maybeSession of
+        Nothing -> do
+          liftIO $ brokerLogWarn "No IG session available - running in demo mode, logging trade only"
+          return $ Right "DEMO_TRADE_LOGGED"
+
+        Just session -> do
+          -- Create IG deal request
+          let epic = instrumentToEpic instrument
+              direction = sideToIGDirection side
+              dealReq = IGDealRequest
+                { dealEpic = epic
+                , dealExpiry = "-" -- CFD (no expiry)
+                , dealDirection = direction
+                , dealSize = positionSize
+                , dealOrderType = MARKET
+                , dealLevel = Nothing
+                , dealQuoteId = Nothing
+                , dealCurrencyCode = Just "GBP"
+                , dealForceOpen = Just True
+                , dealGuaranteedStop = Nothing
+                , dealStopLevel = Nothing
+                , dealStopDistance = Nothing
+                , dealTrailingStop = Nothing
+                , dealTrailingStopIncrement = Nothing
+                , dealLimitLevel = Nothing
+                , dealLimitDistance = Nothing
+                , dealTimeInForce = Nothing
+                , dealReference = Just ("TEMPEH_" <> T.pack (show connId) <> "_" <> T.take 8 epic)
+                }
+
+          -- Execute the trade
+          result <- liftIO $ createPosition (bcConfig conn) session dealReq
+          case result of
+            Left err -> do
+              liftIO $ brokerLogError ("Failed to create position: " <> T.pack (show err))
+              return $ Left err
+            Right dealResponse -> do
+              liftIO $ brokerLogInfo ("Position creation submitted: " <> dealResponseReference dealResponse)
+
+              -- Wait a moment and check deal confirmation
+              liftIO $ threadDelay 1000000 -- 1 second
+              confirmResult <- liftIO $ getDealConfirmation (bcConfig conn) session (dealResponseReference dealResponse)
+              case confirmResult of
+                Left confErr -> do
+                  liftIO $ brokerLogWarn ("Could not confirm deal: " <> T.pack (show confErr))
+                  return $ Right $ dealResponseReference dealResponse
+                Right confirmation -> do
+                  liftIO $ brokerLogInfo ("Deal confirmed: " <> T.pack (show (confirmationDealStatus confirmation)))
+                  return $ Right $ dealResponseReference dealResponse
+
+executeExitSignal :: (MonadIO m) => ConnectionId -> Instrument -> BrokerDataProviderM m (Result Text)
+executeExitSignal connId instrument = do
+  liftIO $ brokerLogInfo ("Executing EXIT signal for " <> T.pack (show instrument))
+
+  connectionsVar <- ask
+  maybeConn <- liftIO $ atomically $ do
+    connections <- readTVar connectionsVar
+    return $ Map.lookup connId connections
+
+  case maybeConn of
+    Nothing -> do
+      liftIO $ brokerLogError ("Connection not found: " <> T.pack (show connId))
+      return $ Left $ brokerError ("Connection not found: " <> T.pack (show connId))
+
+    Just conn -> do
+      maybeSession <- liftIO $ atomically $ readTVar (bcIGSession conn)
+      case maybeSession of
+        Nothing -> do
+          liftIO $ brokerLogWarn "No IG session available - running in demo mode, logging exit only"
+          return $ Right "DEMO_EXIT_LOGGED"
+
+        Just session -> do
+          -- Get current positions for this instrument
+          positionsResult <- liftIO $ IGDeals.getPositions (bcConfig conn) session
+          case positionsResult of
+            Left err -> do
+              liftIO $ brokerLogError ("Failed to get positions: " <> T.pack (show err))
+              return $ Left err
+            Right positions -> do
+              let epic = instrumentToEpic instrument
+                  relevantPositions = filter (\pos -> positionEpic pos == epic) positions
+
+              case relevantPositions of
+                [] -> do
+                  liftIO $ brokerLogWarn ("No open positions found for " <> epic)
+                  return $ Right "NO_POSITIONS_TO_CLOSE"
+
+                (position:_) -> do
+                  -- Close the first matching position
+                  let closeReq = IGDealRequest
+                        { dealEpic = positionEpic position
+                        , dealExpiry = "-"
+                        , dealDirection = oppositeDirection (positionDirection position)
+                        , dealSize = positionSize position
+                        , dealOrderType = MARKET
+                        , dealLevel = Nothing
+                        , dealQuoteId = Nothing
+                        , dealCurrencyCode = Just (positionCurrency position)
+                        , dealForceOpen = Just False
+                        , dealGuaranteedStop = Nothing
+                        , dealStopLevel = Nothing
+                        , dealStopDistance = Nothing
+                        , dealTrailingStop = Nothing
+                        , dealTrailingStopIncrement = Nothing
+                        , dealLimitLevel = Nothing
+                        , dealLimitDistance = Nothing
+                        , dealTimeInForce = Nothing
+                        , dealReference = Just ("TEMPEH_CLOSE_" <> positionDealId position)
+                        }
+
+                  result <- liftIO $ closePosition (bcConfig conn) session closeReq
+                  case result of
+                    Left err -> do
+                      liftIO $ brokerLogError ("Failed to close position: " <> T.pack (show err))
+                      return $ Left err
+                    Right dealResponse -> do
+                      liftIO $ brokerLogInfo ("Position close submitted: " <> dealResponseReference dealResponse)
+                      return $ Right $ dealResponseReference dealResponse
+
+-- Helper functions for converting between domain and IG types
+instrumentToEpic :: Instrument -> Text
+instrumentToEpic (Instrument instr) = case instr of
+  "EURUSD" -> "CS.D.EURUSD.MINI.IP"
+  "GBPUSD" -> "CS.D.GBPUSD.MINI.IP"
+  "USDJPY" -> "CS.D.USDJPY.MINI.IP"
+  "AUDUSD" -> "CS.D.AUDUSD.MINI.IP"
+  "USDCHF" -> "CS.D.USDCHF.MINI.IP"
+  "EURGBP" -> "CS.D.EURGBP.MINI.IP"
+  "EURJPY" -> "CS.D.EURJPY.MINI.IP"
+  _ -> instr  -- Fallback to original instrument name
+
+sideToIGDirection :: Domain.Types.Side -> Direction
+sideToIGDirection Domain.Types.Buy = BUY
+sideToIGDirection Domain.Types.Sell = SELL
+
+oppositeDirection :: Direction -> Direction
+oppositeDirection BUY = SELL
+oppositeDirection SELL = BUY

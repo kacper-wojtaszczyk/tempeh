@@ -78,11 +78,10 @@ Read the file to verify command's success and check results instead of relying o
 - Live data pipeline: Tick → Candle → Signal → Strategy (WebSocket + REST)
 
 ### In Progress 🔄
-**NONE** - All major components completed
-
-### Next Phase 🎯
 - **IG deals API for order placement and position management**
 - Account synchronization and position tracking
+
+### Next Phase 🎯
 - Risk controls and position sizing
 - Stop loss/take profit automation
 
