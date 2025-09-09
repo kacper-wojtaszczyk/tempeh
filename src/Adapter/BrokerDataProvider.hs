@@ -41,6 +41,7 @@ import Adapter.IG.Deals (createPosition, closePosition, getDealConfirmation)
 import qualified Adapter.IG.Deals as IGDeals
 import qualified Data.Scientific as Scientific
 import Data.Scientific (Scientific)
+import Data.Char (isAlphaNum)
 
 -- Adapter-scoped logging helpers
 brokerLogInfo :: Text -> IO ()
@@ -490,9 +491,9 @@ executeEnterSignal connId instrument side positionSize = do
                 , dealOrderType = MARKET
                 , dealLevel = Nothing
                 , dealQuoteId = Nothing
-                , dealCurrencyCode = Just "GBP"
+                , dealCurrencyCode = Just "USD"
                 , dealForceOpen = Just True
-                , dealGuaranteedStop = Nothing
+                , dealGuaranteedStop = Just False
                 , dealStopLevel = Nothing
                 , dealStopDistance = Nothing
                 , dealTrailingStop = Nothing
@@ -500,7 +501,7 @@ executeEnterSignal connId instrument side positionSize = do
                 , dealLimitLevel = Nothing
                 , dealLimitDistance = Nothing
                 , dealTimeInForce = Nothing
-                , dealReference = Just ("TEMPEH_" <> T.pack (show connId) <> "_" <> T.take 8 epic)
+                , dealReference = Just (T.take 30 ("TEMPEH" <> T.filter isAlphaNum (T.pack (show connId) <> T.take 8 epic)))
                 }
 
           -- Execute the trade
@@ -520,8 +521,17 @@ executeEnterSignal connId instrument side positionSize = do
                   liftIO $ brokerLogWarn ("Could not confirm deal: " <> T.pack (show confErr))
                   return $ Right $ dealResponseReference dealResponse
                 Right confirmation -> do
-                  liftIO $ brokerLogInfo ("Deal confirmed: " <> T.pack (show (confirmationDealStatus confirmation)))
-                  return $ Right $ dealResponseReference dealResponse
+                  case confirmationDealStatus confirmation of
+                    Just REJECTED -> do
+                      let reason = maybe "No reason provided" id (confirmationReason confirmation)
+                      liftIO $ brokerLogError ("Deal REJECTED - Reason: " <> reason)
+                      return $ Left $ brokerError ("Deal rejected: " <> reason)
+                    Just dealStatus -> do
+                      liftIO $ brokerLogInfo ("Deal confirmed with status: " <> T.pack (show dealStatus))
+                      return $ Right $ dealResponseReference dealResponse
+                    Nothing -> do
+                      liftIO $ brokerLogWarn "Deal confirmation received but no status provided"
+                      return $ Right $ dealResponseReference dealResponse
 
 executeExitSignal :: (MonadIO m) => ConnectionId -> Instrument -> BrokerDataProviderM m (Result Text)
 executeExitSignal connId instrument = do
@@ -572,7 +582,7 @@ executeExitSignal connId instrument = do
                         , dealQuoteId = Nothing
                         , dealCurrencyCode = Just (positionCurrency position)
                         , dealForceOpen = Just False
-                        , dealGuaranteedStop = Nothing
+                        , dealGuaranteedStop = Just False
                         , dealStopLevel = Nothing
                         , dealStopDistance = Nothing
                         , dealTrailingStop = Nothing
@@ -580,7 +590,7 @@ executeExitSignal connId instrument = do
                         , dealLimitLevel = Nothing
                         , dealLimitDistance = Nothing
                         , dealTimeInForce = Nothing
-                        , dealReference = Just ("TEMPEH_CLOSE_" <> positionDealId position)
+                        , dealReference = Just (T.take 30 ("TEMPEHCLOSE" <> T.filter isAlphaNum (positionDealId position)))
                         }
 
                   result <- liftIO $ closePosition (bcConfig conn) session closeReq

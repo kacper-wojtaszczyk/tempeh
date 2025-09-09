@@ -81,7 +81,7 @@ sampleDealRequest = IGDealRequest
 sampleDealResponse :: IGDealResponse
 sampleDealResponse = IGDealResponse
   { dealResponseReference = "D8VEMD26FGQTYPH"
-  , dealResponseStatus = ACCEPTED
+  , dealResponseStatus = Just ACCEPTED
   }
 
 sampleWorkingOrder :: IGWorkingOrder
@@ -125,12 +125,13 @@ sampleDealConfirmation :: IGDealConfirmation
 sampleDealConfirmation = IGDealConfirmation
   { confirmationDealReference = "D8VEMD26FGQTYPH"
   , confirmationDealId = Just "DIAAAABBBCCC123"
-  , confirmationEpic = "CS.D.EURUSD.CFD.IP"
-  , confirmationDealStatus = ACCEPTED
-  , confirmationDirection = BUY
-  , confirmationSize = 1.0
-  , confirmationLevel = 1.10050
-  , confirmationTimeStamp = "2025-09-07T12:00:00Z"
+  , confirmationEpic = Just "CS.D.EURUSD.CFD.IP"
+  , confirmationDealStatus = Just ACCEPTED
+  , confirmationDirection = Just BUY
+  , confirmationSize = Just 1.0
+  , confirmationLevel = Just 1.10050
+  , confirmationTimeStamp = Just "2025-09-07T12:00:00Z"
+  , confirmationReason = Nothing
   }
 
 -- JSON serialization tests
@@ -214,9 +215,9 @@ dataStructureTests = testGroup "Data Structure Tests"
 
   , testCase "IGDealConfirmation construction" $ do
       confirmationDealReference sampleDealConfirmation @?= "D8VEMD26FGQTYPH"
-      confirmationDealStatus sampleDealConfirmation @?= ACCEPTED
-      confirmationDirection sampleDealConfirmation @?= BUY
-      confirmationSize sampleDealConfirmation @?= 1.0
+      confirmationDealStatus sampleDealConfirmation @?= Just ACCEPTED
+      confirmationDirection sampleDealConfirmation @?= Just BUY
+      confirmationSize sampleDealConfirmation @?= Just 1.0
   ]
 
 -- Business logic tests

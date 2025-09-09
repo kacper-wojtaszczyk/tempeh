@@ -207,7 +207,7 @@ processTicks strategyInstance config connId state = do
                 Enter side -> do
                   liftIO $ putStrLn $ "Strategy signal: ENTER " <> show side
                   -- Execute actual position creation through broker API
-                  let positionSize = 1.0  -- Default position size for now
+                  let positionSize = 0.1  -- Default position size for now
                   executeResult <- executeEnterSignal connId (ltcInstrument config) side positionSize
                   case executeResult of
                     Left tradeErr -> do

@@ -343,13 +343,13 @@ instance FromJSON IGDealRequest where
 -- Deal response
 data IGDealResponse = IGDealResponse
   { dealResponseReference :: Text
-  , dealResponseStatus :: DealStatus
+  , dealResponseStatus :: Maybe DealStatus
   } deriving (Show, Eq, Generic)
 
 instance FromJSON IGDealResponse where
   parseJSON = withObject "IGDealResponse" $ \o -> IGDealResponse
     <$> o .: "dealReference"
-    <*> o .: "dealStatus"
+    <*> o .:? "dealStatus"
 
 instance ToJSON IGDealResponse where
   toJSON resp = object
@@ -361,24 +361,26 @@ instance ToJSON IGDealResponse where
 data IGDealConfirmation = IGDealConfirmation
   { confirmationDealReference :: Text
   , confirmationDealId :: Maybe Text
-  , confirmationEpic :: Text
-  , confirmationDealStatus :: DealStatus
-  , confirmationDirection :: Direction
-  , confirmationSize :: Double
-  , confirmationLevel :: Double
-  , confirmationTimeStamp :: Text
+  , confirmationEpic :: Maybe Text
+  , confirmationDealStatus :: Maybe DealStatus
+  , confirmationDirection :: Maybe Direction
+  , confirmationSize :: Maybe Double
+  , confirmationLevel :: Maybe Double
+  , confirmationTimeStamp :: Maybe Text
+  , confirmationReason :: Maybe Text
   } deriving (Show, Eq, Generic)
 
 instance FromJSON IGDealConfirmation where
   parseJSON = withObject "IGDealConfirmation" $ \o -> IGDealConfirmation
     <$> o .: "dealReference"
     <*> o .:? "dealId"
-    <*> o .: "epic"
-    <*> o .: "dealStatus"
-    <*> o .: "direction"
-    <*> o .: "size"
-    <*> o .: "level"
-    <*> o .: "timeStamp"
+    <*> o .:? "epic"
+    <*> o .:? "dealStatus"
+    <*> o .:? "direction"
+    <*> o .:? "size"
+    <*> o .:? "level"
+    <*> o .:? "timeStamp"
+    <*> o .:? "reason"
 
 instance ToJSON IGDealConfirmation where
   toJSON conf = object
@@ -390,6 +392,7 @@ instance ToJSON IGDealConfirmation where
     , "size" .= confirmationSize conf
     , "level" .= confirmationLevel conf
     , "timeStamp" .= confirmationTimeStamp conf
+    , "reason" .= confirmationReason conf
     ]
 
 -- Working order data

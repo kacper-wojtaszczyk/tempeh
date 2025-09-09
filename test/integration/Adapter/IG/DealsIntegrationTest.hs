@@ -230,18 +230,19 @@ confirmationTests = testGroup "Deal Confirmation Integration Tests"
       let confirmation = IGDealConfirmation
             { confirmationDealReference = "TEST-REF-123"
             , confirmationDealId = Just "DEAL-ID-456"
-            , confirmationEpic = "CS.D.EURUSD.CFD.IP"
-            , confirmationDealStatus = ACCEPTED
-            , confirmationDirection = BUY
-            , confirmationSize = 1.0
-            , confirmationLevel = 1.1050
-            , confirmationTimeStamp = "2025-09-07T15:30:00"
+            , confirmationEpic = Just "CS.D.EURUSD.CFD.IP"
+            , confirmationDealStatus = Just ACCEPTED
+            , confirmationDirection = Just BUY
+            , confirmationSize = Just 1.0
+            , confirmationLevel = Just 1.1050
+            , confirmationTimeStamp = Just "2025-09-07T15:30:00"
+            , confirmationReason = Nothing
             }
 
       confirmationDealReference confirmation @?= "TEST-REF-123"
-      confirmationDealStatus confirmation @?= ACCEPTED
-      confirmationDirection confirmation @?= BUY
-      confirmationSize confirmation @?= 1.0
+      confirmationDealStatus confirmation @?= Just ACCEPTED
+      confirmationDirection confirmation @?= Just BUY
+      confirmationSize confirmation @?= Just 1.0
   ]
 
 -- Error handling integration tests

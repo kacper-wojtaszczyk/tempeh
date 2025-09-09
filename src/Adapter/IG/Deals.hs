@@ -171,7 +171,9 @@ createPosition config session dealReq = do
       let status = responseStatus response
           body = responseBody response
 
-      dealsLogDebug ("Create position response status: " <> T.pack (show status))
+      dealsLogInfo ("Position creation response status: " <> T.pack (show status))
+      dealsLogInfo ("Position creation response body: " <> T.pack (show (LBS.take 1000 body)))
+      return response
 
       if statusCode status == 200
         then case JSON.decode body :: Maybe IGDealResponse of
@@ -428,14 +430,32 @@ getDealConfirmation config session dealReference = do
       let status = responseStatus response
           body = responseBody response
 
+      dealsLogInfo ("Deal confirmation response status: " <> T.pack (show status))
+      dealsLogInfo ("Deal confirmation response body: " <> T.pack (show (LBS.take 1000 body)))
+
       if statusCode status == 200
         then case JSON.decode body :: Maybe IGDealConfirmation of
           Just confirmation -> do
             dealsLogInfo ("Retrieved deal confirmation: " <> dealReference)
+            -- Always log the deal status and reason for troubleshooting - using INFO level
+            case confirmationDealStatus confirmation of
+              Just REJECTED -> do
+                let reason = maybe "No reason provided" id (confirmationReason confirmation)
+                dealsLogError ("Deal REJECTED - Reason: " <> reason)
+              Just dealStatus -> dealsLogInfo ("Deal status: " <> T.pack (show dealStatus))
+              Nothing -> dealsLogInfo "Deal status not provided in confirmation"
+
+            -- Also log the reason field regardless of status
+            case confirmationReason confirmation of
+              Just reason -> dealsLogInfo ("Deal reason: " <> reason)
+              Nothing -> dealsLogInfo "No reason provided in confirmation"
+
             return $ Right confirmation
           Nothing -> do
             dealsLogError "Failed to parse deal confirmation response"
+            dealsLogInfo ("Raw response body: " <> T.pack (show (LBS.take 1000 body)))
             return $ Left $ brokerError "Failed to parse deal confirmation response"
         else do
           dealsLogError ("Get deal confirmation failed with status: " <> T.pack (show status))
+          dealsLogInfo ("Response body: " <> T.pack (show (LBS.take 1000 body)))
           return $ Left $ brokerError ("Get deal confirmation failed with status: " <> T.pack (show status))
