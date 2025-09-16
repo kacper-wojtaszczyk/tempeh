@@ -28,6 +28,7 @@ import Control.Concurrent (threadDelay)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (UTCTime, getCurrentTime, diffUTCTime)
+import Data.Time.Clock.System (getSystemTime, SystemTime(..))
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (isJust)
@@ -96,7 +97,7 @@ instance (MonadIO m) => LiveDataProvider (BrokerDataProviderM m) where
       Nothing -> return $ Right ()
       Just conn -> do
         -- Logout from IG if we have a session
-        maybeSession <- liftIO $ atomically $ readTVar (bcIGSession conn)
+        maybeSession <- liftIO $ readTVarIO (bcIGSession conn)
         case maybeSession of
           Just session -> do
             logoutResult <- liftIO $ logoutFromIG (bcConfig conn) session
@@ -317,7 +318,7 @@ startIGMarketDataSubscription conn instrument = do
   let streamingMode = bcStreamingMode conn
   liftIO $ brokerLogInfo ("Starting IG market data subscription for " <> T.pack (show instrument) <> " using " <> T.pack (show streamingMode))
 
-  maybeSession <- liftIO $ atomically $ readTVar (bcIGSession conn)
+  maybeSession <- liftIO $ readTVarIO (bcIGSession conn)
   case maybeSession of
     Nothing -> do
       liftIO $ brokerLogInfo "No IG session available for market data (running in demo/polling mode)"
@@ -339,7 +340,7 @@ startWebSocketStreaming conn instrument session = do
   liftIO $ brokerLogInfo ("Establishing WebSocket streaming for " <> T.pack (show instrument))
 
   -- Get the tick buffer for this instrument
-  subs <- liftIO $ atomically $ readTVar (bcSubscriptions conn)
+  subs <- liftIO $ readTVarIO (bcSubscriptions conn)
   case Map.lookup instrument subs of
     Nothing -> do
       liftIO $ brokerLogError ("No subscription state found for instrument: " <> T.pack (show instrument))
@@ -396,7 +397,7 @@ handleWebSocketConnectionLifecycle lsConnection conn instrument = do
             closeLightstreamerConnection lsConnection
 
             -- Attempt to reconnect
-            maybeSession <- atomically $ readTVar (bcIGSession conn)
+            maybeSession <- readTVarIO (bcIGSession conn)
             case maybeSession of
               Nothing -> do
                 brokerLogError "No IG session available for reconnection, falling back to REST"
@@ -414,7 +415,7 @@ handleWebSocketConnectionLifecycle lsConnection conn instrument = do
                     brokerLogInfo "WebSocket reconnection successful"
 
                     -- Re-subscribe to instrument
-                    subs <- atomically $ readTVar (bcSubscriptions conn)
+                    subs <- readTVarIO (bcSubscriptions conn)
                     case Map.lookup instrument subs of
                       Just subscriptionState -> do
                         subResult <- subscribeToPriceUpdates newLsConnection instrument (ssTickBuffer subscriptionState)
@@ -473,14 +474,20 @@ executeEnterSignal connId instrument side positionSize = do
       return $ Left $ brokerError ("Connection not found: " <> T.pack (show connId))
 
     Just conn -> do
-      maybeSession <- liftIO $ atomically $ readTVar (bcIGSession conn)
+      maybeSession <- liftIO $ readTVarIO (bcIGSession conn)
       case maybeSession of
         Nothing -> do
           liftIO $ brokerLogWarn "No IG session available - running in demo mode, logging trade only"
           return $ Right "DEMO_TRADE_LOGGED"
 
         Just session -> do
-          -- Create IG deal request
+          -- Generate nanosecond-precision timestamp (total nanoseconds since epoch)
+          tsNs <- liftIO $ do
+            MkSystemTime sec ns <- getSystemTime
+            let nsTotal = (fromIntegral sec :: Integer) * 1_000_000_000 + fromIntegral ns
+            return $ T.pack (show nsTotal)
+
+          -- Create IG deal request; compose reference inline and do NOT truncate
           let epic = instrumentToEpic instrument
               direction = sideToIGDirection side
               dealReq = IGDealRequest
@@ -501,7 +508,7 @@ executeEnterSignal connId instrument side positionSize = do
                 , dealLimitLevel = Nothing
                 , dealLimitDistance = Nothing
                 , dealTimeInForce = Nothing
-                , dealReference = Just (T.take 30 ("TEMPEH" <> T.filter isAlphaNum (T.pack (show connId) <> T.take 8 epic)))
+                , dealReference = Just ("TEMPEH" <> T.filter isAlphaNum (T.pack (show connId) <> T.take 8 epic) <> "-" <> tsNs)
                 }
 
           -- Execute the trade
@@ -548,7 +555,7 @@ executeExitSignal connId instrument = do
       return $ Left $ brokerError ("Connection not found: " <> T.pack (show connId))
 
     Just conn -> do
-      maybeSession <- liftIO $ atomically $ readTVar (bcIGSession conn)
+      maybeSession <- liftIO $ readTVarIO (bcIGSession conn)
       case maybeSession of
         Nothing -> do
           liftIO $ brokerLogWarn "No IG session available - running in demo mode, logging exit only"
@@ -571,7 +578,12 @@ executeExitSignal connId instrument = do
                   return $ Right "NO_POSITIONS_TO_CLOSE"
 
                 (position:_) -> do
-                  -- Close the first matching position
+                  -- Close the first matching position, append nanosecond timestamp for uniqueness
+                  tsNs <- liftIO $ do
+                    MkSystemTime sec ns <- getSystemTime
+                    let nsTotal = (fromIntegral sec :: Integer) * 1_000_000_000 + fromIntegral ns
+                    return $ T.pack (show nsTotal)
+
                   let closeReq = IGDealRequest
                         { dealEpic = positionEpic position
                         , dealExpiry = "-"
@@ -590,7 +602,7 @@ executeExitSignal connId instrument = do
                         , dealLimitLevel = Nothing
                         , dealLimitDistance = Nothing
                         , dealTimeInForce = Nothing
-                        , dealReference = Just (T.take 30 ("TEMPEHCLOSE" <> T.filter isAlphaNum (positionDealId position)))
+                        , dealReference = Just ("TEMPEHCLOSE" <> T.filter isAlphaNum (positionDealId position) <> "-" <> tsNs)
                         }
 
                   result <- liftIO $ closePosition (bcConfig conn) session closeReq
