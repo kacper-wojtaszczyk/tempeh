@@ -76,12 +76,19 @@ Read the file to verify command's success and check results instead of relying o
   - ✅ Complete message parsing (CONOK, SUBOK, U-format updates)
   - ✅ Timestamp parsing and tick creation pipeline
 - Live data pipeline: Tick → Candle → Signal → Strategy (WebSocket + REST)
+- **IG adapter modular refactoring (Phase 1)**: FULLY COMPLETED ✅
+  - ✅ Modular architecture with Session, Connection, Trading, Error modules
+  - ✅ Comprehensive unit test coverage for new modules
+  - ✅ Clean architecture patterns implemented
+  - ✅ All compilation issues resolved
+  - ✅ Foundation ready for Phase 2 integration
 
 ### In Progress 🔄
-- **IG deals API for order placement and position management**
+- **IG deals API integration with new modular architecture (Phase 2)**
 - Account synchronization and position tracking
 
 ### Next Phase 🎯
+- Integration of new modular IG adapter with existing BrokerDataProvider
 - Risk controls and position sizing
 - Stop loss/take profit automation
 
@@ -97,6 +104,7 @@ Read the file to verify command's success and check results instead of relying o
 
 This is a **learning project** emphasizing:
 - Collaborative approach with Haskell best practices
+- In-depth documentation of architectural decisions and patterns
 - Quality over speed
 - High-level architectural focus
 - Functional programming patterns

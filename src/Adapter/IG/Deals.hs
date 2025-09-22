@@ -155,7 +155,7 @@ getPosition config session dealId = do
 -- Create new position
 createPosition :: BrokerConfig -> IGSession -> IGDealRequest -> IO (Result IGDealResponse)
 createPosition config session dealReq = do
-  dealsLogInfo ("Creating position: " <> dealEpic dealReq <> " " <> T.pack (show (dealDirection dealReq)) <> " " <> T.pack (show (dealSize dealReq)))
+  dealsLogInfo ("Creating position: " <> dealEpic dealReq <> " " <> T.pack (show (dealDirection dealReq)) <> " " <> T.pack (show (dealSize dealReq)) <> " " <> T.pack (show (dealReference dealReq)))
 
   result <- try $ do
     request <- createJsonRequest config session "POST" "/positions/otc" "2" (JSON.toJSON dealReq)

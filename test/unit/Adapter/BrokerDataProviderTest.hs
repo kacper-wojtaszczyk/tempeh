@@ -68,6 +68,24 @@ brokerDataProviderTests = testGroup "Adapter.BrokerDataProvider"
   , testGroup "Adapter Logging"
     [ testCase "Broker logs should be written to component log file" testBrokerLogging
     ]
+  , testGroup "Deal Reference Generation"
+    [ testCase "Reference is <= 30 chars and alphanumeric" $ do
+        let ref = mkDealReference "TEMPEH" "CONNID1234567890" "1234567890"
+        assertBool "Length <= 30" (T.length ref <= 30)
+        assertBool "Alphanumeric" (T.all (\c -> c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9') ref)
+    , QC.testProperty "Reference never exceeds 30 chars" $ \prefix uniq ts ->
+        let p = T.pack (take 10 (filter (/= '-') prefix))
+            u = T.pack (take 30 (filter (/= '-') uniq))
+            t = T.pack (take 20 (filter (/= '-') ts))
+            ref = mkDealReference p u t
+        in T.length ref <= 30
+    , QC.testProperty "Reference is always alphanumeric" $ \prefix uniq ts ->
+        let p = T.pack (take 10 (filter (/= '-') prefix))
+            u = T.pack (take 30 (filter (/= '-') uniq))
+            t = T.pack (take 20 (filter (/= '-') ts))
+            ref = mkDealReference p u t
+        in T.all (\c -> c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9') ref
+    ]
   ]
 
 -- Demo connection test

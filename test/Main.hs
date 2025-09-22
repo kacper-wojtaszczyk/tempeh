@@ -20,6 +20,11 @@ import qualified Unit.Adapter.BacktestEngineTest
 import qualified Unit.Adapter.IG.PollingTest
 import qualified Unit.Adapter.IG.StreamingTest
 import qualified Unit.Adapter.IG.DealsTest
+-- New modular IG adapter tests
+import qualified Unit.Adapter.IG.SessionTest
+import qualified Unit.Adapter.IG.ConnectionTest
+import qualified Unit.Adapter.IG.ErrorTest
+import qualified Unit.Adapter.IG.TradingTest
 import qualified Unit.Util.ConfigTest
 import qualified Unit.Util.ErrorTest
 import qualified Unit.Util.LoggerTest
@@ -83,6 +88,11 @@ main = do
         , Unit.Adapter.IG.PollingTest.tests
         , Unit.Adapter.IG.StreamingTest.tests
         , Unit.Adapter.IG.DealsTest.dealsTests
+        -- New modular IG adapter tests
+        , Unit.Adapter.IG.SessionTest.sessionTests
+        , Unit.Adapter.IG.ConnectionTest.connectionTests
+        , Unit.Adapter.IG.ErrorTest.errorTests
+        , Unit.Adapter.IG.TradingTest.tradingTests
         ]
       , testGroup "Util Layer"
         [ Unit.Util.ConfigTest.tests

@@ -14,6 +14,7 @@ module Adapter.BrokerDataProvider
     -- Trading execution
   , executeEnterSignal
   , executeExitSignal
+  , mkDealReference -- exported for tests
   ) where
 
 import Domain.Services.LiveDataService
@@ -27,8 +28,8 @@ import Control.Concurrent.Async (async)
 import Control.Concurrent (threadDelay)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Time (UTCTime, getCurrentTime, diffUTCTime)
-import Data.Time.Clock.System (getSystemTime, SystemTime(..))
+import Data.Time (getCurrentTime, diffUTCTime, utctDay)
+import Data.Time.Clock (UTCTime(..))
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (isJust)
@@ -42,7 +43,12 @@ import Adapter.IG.Deals (createPosition, closePosition, getDealConfirmation)
 import qualified Adapter.IG.Deals as IGDeals
 import qualified Data.Scientific as Scientific
 import Data.Scientific (Scientific)
-import Data.Char (isAlphaNum)
+import Data.Char (isAlphaNum, intToDigit, chr, ord)
+import System.Random (randomRIO)
+import Data.Time.Calendar (toGregorian, fromGregorian)
+import Numeric (showIntAtBase)
+import Data.Bits ((.|.), shiftL)
+import Data.Time.Clock.POSIX (getPOSIXTime)
 
 -- Adapter-scoped logging helpers
 brokerLogInfo :: Text -> IO ()
@@ -62,11 +68,37 @@ newtype BrokerDataProviderM m a = BrokerDataProviderM
   { runBrokerDataProvider :: ReaderT (TVar (Map ConnectionId BrokerConnection)) m a }
   deriving (Functor, Applicative, Monad, MonadIO, MonadReader (TVar (Map ConnectionId BrokerConnection)))
 
+-- | Generate a 7-character base36 connection ID unique within a month
+--   Format: [seconds since month start + 12 random bits], base36, padded/truncated to 7 chars
+--   Uniqueness: >1M/sec * 4096 random = 4B possible IDs/month
+--   Collision risk is negligible for practical use
+
+genShortConnId :: IO Text
+genShortConnId = do
+  now <- getCurrentTime
+  let (year, month, _) = toGregorian (utctDay now)
+      monthStart = fromGregorian year month 1
+      secondsSinceMonthStart = round $ diffUTCTime now (UTCTime monthStart 0)
+  randBits <- randomRIO (0, 4095 :: Int) -- 12 bits
+  let rawNum = (secondsSinceMonthStart `shiftL` 12) .|. randBits
+      base36 = showBase36 rawNum
+      padded = T.justifyRight 7 '0' (T.pack base36)
+  return $ T.takeEnd 7 padded
+  where
+    showBase36 :: Int -> String
+    showBase36 n = showIntAtBase 36 toBase36Digit n ""
+
+    toBase36Digit :: Int -> Char
+    toBase36Digit i
+      | i < 10    = intToDigit i
+      | i < 36    = chr (ord 'a' + i - 10)
+      | otherwise = error "Invalid digit for base36"
+
 -- LiveDataProvider implementation for broker
 instance (MonadIO m) => LiveDataProvider (BrokerDataProviderM m) where
   connect = do
     liftIO $ brokerLogInfo "Attempting to connect to broker"
-    connId <- liftIO $ ConnectionId . T.pack . show <$> getCurrentTime
+    connId <- liftIO $ ConnectionId <$> genShortConnId
     now <- liftIO getCurrentTime
 
     -- Load configuration
@@ -483,8 +515,8 @@ executeEnterSignal connId instrument side positionSize = do
         Just session -> do
           -- Generate nanosecond-precision timestamp (total nanoseconds since epoch)
           tsNs <- liftIO $ do
-            MkSystemTime sec ns <- getSystemTime
-            let nsTotal = (fromIntegral sec :: Integer) * 1_000_000_000 + fromIntegral ns
+            posix <- getPOSIXTime
+            let nsTotal = floor (realToFrac posix * 1_000_000_000 :: Double)
             return $ T.pack (show nsTotal)
 
           -- Create IG deal request; compose reference inline and do NOT truncate
@@ -508,7 +540,7 @@ executeEnterSignal connId instrument side positionSize = do
                 , dealLimitLevel = Nothing
                 , dealLimitDistance = Nothing
                 , dealTimeInForce = Nothing
-                , dealReference = Just ("TEMPEH" <> T.filter isAlphaNum (T.pack (show connId) <> T.take 8 epic) <> "-" <> tsNs)
+                , dealReference = Just (mkDealReference "TEMPEH" (T.pack (show connId) <> T.take 8 epic) tsNs)
                 }
 
           -- Execute the trade
@@ -580,8 +612,8 @@ executeExitSignal connId instrument = do
                 (position:_) -> do
                   -- Close the first matching position, append nanosecond timestamp for uniqueness
                   tsNs <- liftIO $ do
-                    MkSystemTime sec ns <- getSystemTime
-                    let nsTotal = (fromIntegral sec :: Integer) * 1_000_000_000 + fromIntegral ns
+                    posix <- getPOSIXTime
+                    let nsTotal = floor (realToFrac posix * 1_000_000_000 :: Double)
                     return $ T.pack (show nsTotal)
 
                   let closeReq = IGDealRequest
@@ -602,7 +634,7 @@ executeExitSignal connId instrument = do
                         , dealLimitLevel = Nothing
                         , dealLimitDistance = Nothing
                         , dealTimeInForce = Nothing
-                        , dealReference = Just ("TEMPEHCLOSE" <> T.filter isAlphaNum (positionDealId position) <> "-" <> tsNs)
+                        , dealReference = Just (mkDealReference "TEMPEHCLOSE" (positionDealId position) tsNs)
                         }
 
                   result <- liftIO $ closePosition (bcConfig conn) session closeReq
@@ -633,3 +665,23 @@ sideToIGDirection Domain.Types.Sell = SELL
 oppositeDirection :: Direction -> Direction
 oppositeDirection BUY = SELL
 oppositeDirection SELL = BUY
+
+-- | Construct a deal reference string <= 30 chars, alphanumeric only
+mkDealReference :: Text -> Text -> Text -> Text
+mkDealReference prefix uniq ts =
+  let base = prefix <> uniq <> "-" <> ts
+      clean = T.filter isAsciiAlphaNum base
+      -- If too long, truncate uniq and ts to fit
+      maxLen = 30
+      prefixLen = T.length prefix
+      tsLen = T.length ts
+      sepLen = 1
+      uniqMax = max 0 (maxLen - prefixLen - sepLen - tsLen)
+      uniqShort = T.take uniqMax uniq
+      ref = prefix <> uniqShort <> "-" <> ts
+      refClean = T.filter isAsciiAlphaNum ref
+  in T.take maxLen refClean
+  where
+    -- Strict ASCII alphanumeric filter for deal references
+    isAsciiAlphaNum :: Char -> Bool
+    isAsciiAlphaNum c = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')

@@ -33,6 +33,12 @@ library
     , Adapter.IG.Auth
     , Adapter.IG.Streaming
     , Adapter.IG.Deals
+    -- Phase 1: New Modular IG Architecture
+    , Adapter.IG.Session
+    , Adapter.IG.Connection
+    , Adapter.IG.Trading
+    , Adapter.IG.Error
+    , Adapter.IG.BrokerAdapter
 
     -- Strategy Implementations
     , Strategy.EmaCross
@@ -68,6 +74,7 @@ library
     , wuss
     , network
     , uuid
+    , random
   default-language:    Haskell2010
 
 executable tempeh
@@ -79,6 +86,7 @@ executable tempeh
     , text
     , mtl
     , scientific
+    , random
   default-language:    Haskell2010
 
 test-suite tempeh-test
@@ -114,6 +122,7 @@ test-suite tempeh-test
     , wuss
     , network
     , uuid
+    , random
   other-modules:
       -- Unit Tests
       Unit.Domain.TypesTest
@@ -135,6 +144,11 @@ test-suite tempeh-test
     , Unit.Adapter.IG.PollingTest
     , Unit.Adapter.IG.StreamingTest
     , Unit.Adapter.IG.DealsTest
+    -- Phase 1: New Modular IG Adapter Tests
+    , Unit.Adapter.IG.SessionTest
+    , Unit.Adapter.IG.ConnectionTest
+    , Unit.Adapter.IG.ErrorTest
+    , Unit.Adapter.IG.TradingTest
     , Unit.Util.ConfigTest
     , Unit.Util.ErrorTest
     , Unit.Util.LoggerTest
