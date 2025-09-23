@@ -1,8 +1,8 @@
 # Tempeh Trading Bot - Copilot Instructions
 
-## 🎯 Project Context [ESSENTIAL]
+## 🎯 Project Overview [ESSENTIAL]
 
-**Tempeh** is a production-ready Haskell forex trading bot following clean architecture patterns. This is both a learning project and serious automated trading system.
+I'm learning Haskell by building a forex trading bot from scratch. Please assume a mentoring approach, guiding me through best practices, idioms, and architectural patterns. Be critical and descriptive. Argument in detail why you agree or disagree with my ideas and suggest alternatives if needed. Explain the changes you make to the code and reasoning behind them. Always suggest improvements and optimizations.
 
 **Current Phase**: WebSocket Streaming (✅ COMPLETED) → Trading Operations (🎯 Next Priority)  
 **Status**: 430/430 tests passing, live market data fully operational with real-time streaming
@@ -80,7 +80,7 @@ Read the file to verify command's success and check results instead of relying o
 ### Development Practices
 - Whenever you add new code it must be covered by tests.
 - Follow Haskell best practices and idioms.
-- Whenever you use documentation as a source of roadmap/implementation guideline remember to update the documentation with current progress after making changes
+- Whenever you use documentation as a source of roadmap/next steps remember to update the documentation with current progress after making changes
 
 ## 🚀 Current Status [ESSENTIAL]
 

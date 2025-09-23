@@ -9,11 +9,11 @@
   "acBroker": {
     "bcBrokerType": "Demo",
     "bcEnvironment": "DemoEnv",
-    "bcBaseUrl": null,
-    "bcApiKey": null,
-    "bcUsername": null,
-    "bcPassword": null,
-    "bcAccountId": null,
+    "bcBaseUrl": "https://demo-api.ig.com/gateway/deal",
+    "bcApiKey": "test-api-key",
+    "bcUsername": "test-username",
+    "bcPassword": "test-password",
+    "bcAccountId": "test-account",
     "bcConnectTimeout": 5,
     "bcReadTimeout": 10,
     "bcReconnectPolicy": {
@@ -31,4 +31,3 @@
     "enablePaperTrading": true
   }
 }
-

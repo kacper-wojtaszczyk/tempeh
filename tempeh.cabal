@@ -33,12 +33,11 @@ library
     , Adapter.IG.Auth
     , Adapter.IG.Streaming
     , Adapter.IG.Deals
-    -- Phase 1: New Modular IG Architecture
     , Adapter.IG.Session
     , Adapter.IG.Connection
     , Adapter.IG.Trading
     , Adapter.IG.Error
-    -- , Adapter.IG.BrokerAdapter  -- Temporarily disabled due to type mismatches (Phase 3)
+    , Adapter.IG.BrokerAdapter
 
     -- Strategy Implementations
     , Strategy.EmaCross
@@ -144,11 +143,11 @@ test-suite tempeh-test
     , Unit.Adapter.IG.PollingTest
     , Unit.Adapter.IG.StreamingTest
     , Unit.Adapter.IG.DealsTest
-    -- Phase 1: New Modular IG Adapter Tests
     , Unit.Adapter.IG.SessionTest
     , Unit.Adapter.IG.ConnectionTest
     , Unit.Adapter.IG.ErrorTest
     , Unit.Adapter.IG.TradingTest
+    , Unit.Adapter.IG.BrokerAdapterTest
     , Unit.Util.ConfigTest
     , Unit.Util.ErrorTest
     , Unit.Util.LoggerTest

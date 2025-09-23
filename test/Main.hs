@@ -25,6 +25,7 @@ import qualified Unit.Adapter.IG.SessionTest
 import qualified Unit.Adapter.IG.ConnectionTest
 import qualified Unit.Adapter.IG.ErrorTest
 import qualified Unit.Adapter.IG.TradingTest
+import qualified Unit.Adapter.IG.BrokerAdapterTest
 import qualified Unit.Util.ConfigTest
 import qualified Unit.Util.ErrorTest
 import qualified Unit.Util.LoggerTest
@@ -93,6 +94,7 @@ main = do
         , Unit.Adapter.IG.ConnectionTest.connectionTests
         , Unit.Adapter.IG.ErrorTest.errorTests
         , Unit.Adapter.IG.TradingTest.tradingTests
+        , Unit.Adapter.IG.BrokerAdapterTest.brokerAdapterTests
         ]
       , testGroup "Util Layer"
         [ Unit.Util.ConfigTest.tests
