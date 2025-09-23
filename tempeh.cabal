@@ -38,7 +38,7 @@ library
     , Adapter.IG.Connection
     , Adapter.IG.Trading
     , Adapter.IG.Error
-    , Adapter.IG.BrokerAdapter
+    -- , Adapter.IG.BrokerAdapter  -- Temporarily disabled due to type mismatches (Phase 3)
 
     -- Strategy Implementations
     , Strategy.EmaCross

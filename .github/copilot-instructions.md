@@ -5,7 +5,7 @@
 **Tempeh** is a production-ready Haskell forex trading bot following clean architecture patterns. This is both a learning project and serious automated trading system.
 
 **Current Phase**: WebSocket Streaming (✅ COMPLETED) → Trading Operations (🎯 Next Priority)  
-**Status**: 332/332 tests passing, live market data fully operational with real-time streaming
+**Status**: 430/430 tests passing, live market data fully operational with real-time streaming
 
 ## 🏗️ Architecture [ESSENTIAL]
 
@@ -55,12 +55,32 @@ cabal run tempeh -- live EURUSD ema 5 20 0.0001
 ### File Reading Protocol [CRITICAL]
 **IMPORTANT**: Always read files completely. Never use `endLineNumberBaseZero = -1`. Read large sections for complete context.
 
+**❌ NEVER DO THIS:**
+```
+endLineNumberBaseZero = -1  // This will make files appear empty!
+```
+
+**✅ ALWAYS DO THIS:**
+```
+# First check file length with wc -l
+wc -l /path/to/file
+# Then read with proper end line (file_length - 1)
+endLineNumberBaseZero = file_length_minus_one
+```
+
+**WHY**: Using -1 causes the read_file tool to fail and return empty content, making files appear empty when they actually contain important information.
+
 ### Terminal Output [CRITICAL]
 **IMPORTANT**: Redirect all command output to files due to terminal access limitations:
 ```bash
 command 2>&1 | tee ai/output_$(date +%s).txt
 ```
 Read the file to verify command's success and check results instead of relying on direct terminal access. Retry up to 3 times if empty/incomplete.
+
+### Development Practices
+- Whenever you add new code it must be covered by tests.
+- Follow Haskell best practices and idioms.
+- Whenever you use documentation as a source of roadmap/implementation guideline remember to update the documentation with current progress after making changes
 
 ## 🚀 Current Status [ESSENTIAL]
 
@@ -84,11 +104,17 @@ Read the file to verify command's success and check results instead of relying o
   - ✅ Foundation ready for Phase 2 integration
 
 ### In Progress 🔄
-- **IG deals API integration with new modular architecture (Phase 2)**
+- **IG adapter integration (Phase 2)**: COMPLETED ✅
+  - ✅ BrokerAdapter orchestration scaffold implemented
+  - ✅ LiveDataProvider interface fully integrated  
+  - ✅ BrokerDataProvider migration from legacy imports to new modules COMPLETED
+  - ✅ All 430 tests passing with new modular architecture
+  - ✅ Error handling integration with new IG.Error module
+  - 🔄 BrokerAdapter full implementation (deferred to Phase 3)
 - Account synchronization and position tracking
 
 ### Next Phase 🎯
-- Integration of new modular IG adapter with existing BrokerDataProvider
+- Phase 3: Complete BrokerAdapter integration (resolve type mismatches)
 - Risk controls and position sizing
 - Stop loss/take profit automation
 

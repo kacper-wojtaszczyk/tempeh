@@ -25,6 +25,8 @@ import Control.Concurrent.STM
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
+import Data.Map (Map)
+import qualified Data.Map as Map
 
 import Domain.Services.LiveDataService
 import Domain.Types
@@ -37,13 +39,14 @@ import qualified Adapter.IG.Session as Session
 import qualified Adapter.IG.Connection as Connection
 import qualified Adapter.IG.Trading as Trading
 import qualified Adapter.IG.Error as IGError
+import Adapter.IG.Types (IGSession)
 
--- | IG Adapter context containing all managers
+-- | IG Adapter context with simplified state management
 data IGAdapterContext = IGAdapterContext
   { igcAppConfig :: AppConfig
-  , igcSessionManager :: TVar (Maybe (Session.SessionManager IO ()))
-  , igcConnectionManager :: TVar (Maybe (Connection.ConnectionManager IO ()))
-  , igcTradingManager :: TVar (Maybe (Trading.TradingManager IO ()))
+  , igcSessionState :: TVar (Maybe IGSession)
+  , igcConnectionStates :: TVar (Map ConnectionId Connection.ConnectionState)
+  , igcTradingContext :: TVar (Maybe Trading.TradingContext)
   }
 
 -- | Main IG Broker Adapter monad
@@ -51,77 +54,105 @@ newtype IGBrokerAdapter m a = IGBrokerAdapter
   { runIGBrokerAdapter :: ReaderT IGAdapterContext m a }
   deriving (Functor, Applicative, Monad, MonadIO, MonadReader IGAdapterContext)
 
--- | Initialize the IG adapter with all required managers
+-- | Initialize the IG adapter with all required state containers
 initializeAdapter :: MonadIO m => AppConfig -> IGBrokerAdapter m (Result IGAdapterContext)
 initializeAdapter appConfig = do
   liftIO $ adapterLogInfo "Initializing IG Broker Adapter with modular architecture"
 
-  -- Initialize manager containers
-  sessionManagerVar <- liftIO $ newTVarIO Nothing
-  connectionManagerVar <- liftIO $ newTVarIO Nothing
-  tradingManagerVar <- liftIO $ newTVarIO Nothing
+  -- Initialize state containers
+  sessionState <- liftIO $ newTVarIO Nothing
+  connectionStates <- liftIO $ newTVarIO mempty
+  tradingContext <- liftIO $ newTVarIO Nothing
 
   let context = IGAdapterContext
         { igcAppConfig = appConfig
-        , igcSessionManager = sessionManagerVar
-        , igcConnectionManager = connectionManagerVar
-        , igcTradingManager = tradingManagerVar
+        , igcSessionState = sessionState
+        , igcConnectionStates = connectionStates
+        , igcTradingContext = tradingContext
         }
 
   liftIO $ adapterLogInfo "IG Broker Adapter initialized successfully"
   return $ Right context
 
--- | Connect to IG using layered approach: Session -> Connection -> Trading
+-- | Connect to IG using layered approach with simplified state management
 connectToIG :: MonadIO m => Text -> Text -> IGBrokerAdapter m (Result ConnectionId)
 connectToIG username password = do
-  liftIO $ adapterLogInfo "Connecting to IG using layered architecture"
+  liftIO $ adapterLogInfo "Connecting to IG using new modular architecture"
   context <- ask
+  let brokerConfig = acBroker (igcAppConfig context)
 
-  -- Step 1: Create session
-  sessionResult <- createSession username password
+  -- Step 1: Create session using Session module
+  sessionResult <- liftIO $ Session.runSessionManager (Session.SessionManager (return (igcSessionState context))) $
+    Session.createSession brokerConfig username password
   case sessionResult of
     Left err -> return $ Left err
     Right session -> do
-      -- Step 2: Establish connection
-      connectionResult <- establishConnection session
-      case connectionResult of
-        Left err -> return $ Left err
-        Right connId -> do
-          -- Step 3: Initialize trading manager
-          tradingResult <- initializeTradingManager session
-          case tradingResult of
-            Left err -> return $ Left err
-            Right _ -> do
-              liftIO $ adapterLogInfo ("Successfully connected to IG: " <> T.pack (show connId))
-              return $ Right connId
+      -- Step 2: Generate connection ID and establish connection state
+      connId <- liftIO $ ConnectionId <$> Connection.generateConnectionId
+      now <- liftIO getCurrentTime
+      let connectionState = Connection.ConnectionState
+            { Connection.csConnectionId = connId
+            , Connection.csStatus = Connected now
+            , Connection.csLastHeartbeat = now
+            , Connection.csReconnectCount = 0
+            , Connection.csSubscriptions = mempty
+            }
 
--- | Subscribe to market data using connection manager
+      -- Store connection state
+      liftIO $ atomically $ do
+        connections <- readTVar (igcConnectionStates context)
+        writeTVar (igcConnectionStates context) (Map.insert connId connectionState connections)
+
+      -- Step 3: Initialize trading context
+      let tradingCtx = Trading.TradingContext session brokerConfig
+      liftIO $ atomically $ writeTVar (igcTradingContext context) (Just tradingCtx)
+
+      liftIO $ adapterLogInfo ("Successfully connected to IG: " <> T.pack (show connId))
+      return $ Right connId
+
+-- | Subscribe to market data using connection state
 subscribeToMarketData :: MonadIO m => ConnectionId -> Instrument -> IGBrokerAdapter m (Result ())
 subscribeToMarketData connId instrument = do
   liftIO $ adapterLogInfo ("Subscribing to market data: " <> T.pack (show instrument))
-  -- For Phase 1, return success - full implementation would use connection manager
-  return $ Right ()
+  context <- ask
 
--- | Execute trade using trading manager with proper error handling
+  -- Check if connection exists
+  maybeConnectionState <- liftIO $ atomically $ do
+    connections <- readTVar (igcConnectionStates context)
+    return $ Map.lookup connId connections
+
+  case maybeConnectionState of
+    Nothing -> do
+      liftIO $ adapterLogError "Connection not found"
+      return $ Left $ brokerError "Connection not available"
+    Just connectionState -> do
+      liftIO $ adapterLogInfo ("Successfully accessed connection for subscription to " <> T.pack (show instrument))
+      -- In a full implementation, this would update the subscription state
+      return $ Right ()
+
+-- | Execute trade using trading context
 executeTradeOrder :: MonadIO m => ConnectionId -> Instrument -> Side -> Double -> IGBrokerAdapter m (Result Text)
 executeTradeOrder connId instrument side size = do
   liftIO $ adapterLogInfo ("Executing trade order: " <> T.pack (show side) <> " " <> T.pack (show size) <> " of " <> T.pack (show instrument))
   context <- ask
 
-  -- Get trading manager
-  maybeTradingManager <- liftIO $ readTVarIO (igcTradingManager context)
-  case maybeTradingManager of
+  -- Get trading context
+  maybeTradingContext <- liftIO $ readTVarIO (igcTradingContext context)
+  case maybeTradingContext of
     Nothing -> do
-      liftIO $ adapterLogError "Trading manager not initialized"
-      return $ Left $ brokerError "Trading manager not available"
-    Just tradingManager -> do
-      -- Generate unique deal reference
-      now <- liftIO getCurrentTime
-      let dealRef = "TEMPEH-" <> T.pack (show connId) <> "-" <> T.pack (show now)
-
-      -- For Phase 1, return success with mock deal ID
-      liftIO $ adapterLogInfo ("Trade executed successfully (Phase 1 mock): " <> dealRef)
-      return $ Right dealRef
+      liftIO $ adapterLogError "Trading context not initialized"
+      return $ Left $ brokerError "Trading context not available"
+    Just tradingCtx -> do
+      -- Execute market order using Trading module
+      result <- liftIO $ Trading.runTradingManager (Trading.TradingManager (return (igcTradingContext context))) $ do
+        Trading.executeMarketOrder instrument side size
+      case result of
+        Left err -> do
+          liftIO $ adapterLogError ("Trade execution failed: " <> T.pack (show err))
+          return $ Left err
+        Right dealRef -> do
+          liftIO $ adapterLogInfo ("Trade executed successfully: " <> dealRef)
+          return $ Right dealRef
 
 -- | Disconnect from IG with proper cleanup
 disconnectFromIG :: MonadIO m => ConnectionId -> IGBrokerAdapter m (Result ())
@@ -129,19 +160,28 @@ disconnectFromIG connId = do
   liftIO $ adapterLogInfo ("Disconnecting from IG: " <> T.pack (show connId))
   context <- ask
 
-  -- Step 1: Clean up trading manager
-  liftIO $ atomically $ writeTVar (igcTradingManager context) Nothing
+  -- Step 1: Clean up trading context
+  liftIO $ atomically $ writeTVar (igcTradingContext context) Nothing
+  liftIO $ adapterLogInfo "Trading context cleaned up"
 
-  -- Step 2: Close connection
-  liftIO $ atomically $ writeTVar (igcConnectionManager context) Nothing
+  -- Step 2: Remove connection state
+  liftIO $ atomically $ do
+    connections <- readTVar (igcConnectionStates context)
+    writeTVar (igcConnectionStates context) (Map.delete connId connections)
+  liftIO $ adapterLogInfo "Connection state removed"
 
-  -- Step 3: Close session
-  liftIO $ atomically $ writeTVar (igcSessionManager context) Nothing
+  -- Step 3: Close session using Session module
+  let brokerConfig = acBroker (igcAppConfig context)
+  result <- liftIO $ Session.runSessionManager (Session.SessionManager (return (igcSessionState context))) $ do
+    Session.closeSession brokerConfig
+  case result of
+    Left err -> liftIO $ adapterLogWarn ("Session close failed: " <> T.pack (show err))
+    Right _ -> liftIO $ adapterLogInfo "Session closed successfully"
 
   liftIO $ adapterLogInfo ("Successfully disconnected from IG: " <> T.pack (show connId))
   return $ Right ()
 
--- | Handle connection failures with automatic recovery
+-- | Handle connection failures with automatic recovery using Error module
 handleConnectionFailure :: MonadIO m => ConnectionId -> IGError.IGError -> IGBrokerAdapter m (Result ())
 handleConnectionFailure connId igError = do
   liftIO $ adapterLogWarn ("Handling connection failure: " <> IGError.formatErrorMessage igError)
@@ -150,14 +190,23 @@ handleConnectionFailure connId igError = do
   case recoveryStrategy of
     IGError.RefreshSession -> do
       liftIO $ adapterLogInfo "Attempting session refresh for recovery"
-      return $ Right ()
+      context <- ask
+      let brokerConfig = acBroker (igcAppConfig context)
+      result <- liftIO $ Session.runSessionManager (Session.SessionManager (return (igcSessionState context))) $ do
+        -- Would need username/password from original connection - simplified for now
+        Session.renewSession brokerConfig "username" "password"
+      case result of
+        Left err -> return $ Left err
+        Right _ -> return $ Right ()
 
     IGError.RetryWithBackoff -> do
       liftIO $ adapterLogInfo "Attempting connection retry with backoff"
+      -- Implementation would retry connection establishment
       return $ Right ()
 
     IGError.SwitchToFallback -> do
       liftIO $ adapterLogInfo "Switching to fallback connection method"
+      -- Implementation would switch from WebSocket to REST polling
       return $ Right ()
 
     _ -> do
@@ -170,34 +219,6 @@ recoverFromError err = do
   liftIO $ adapterLogInfo ("Attempting error recovery: " <> T.pack (show err))
   -- Implementation would analyze error and apply appropriate recovery strategy
   return $ Right ()
-
--- Helper functions for manager initialization (Phase 1 simplified versions)
-createSession :: MonadIO m => Text -> Text -> IGBrokerAdapter m (Result Text)
-createSession username password = do
-  liftIO $ adapterLogInfo "Creating IG session (Phase 1 implementation)"
-  context <- ask
-  let brokerConfig = acBroker (igcAppConfig context)
-
-  -- For Phase 1, return mock session
-  liftIO $ adapterLogInfo "Session created successfully (Phase 1 mock)"
-  return $ Right "mock-session-token"
-
-establishConnection :: MonadIO m => Text -> IGBrokerAdapter m (Result ConnectionId)
-establishConnection sessionToken = do
-  liftIO $ adapterLogInfo "Establishing IG connection (Phase 1 implementation)"
-
-  -- For Phase 1, generate mock connection ID
-  connId <- liftIO $ ConnectionId <$> Connection.generateConnectionId
-  liftIO $ adapterLogInfo ("Connection established (Phase 1 mock): " <> T.pack (show connId))
-  return $ Right connId
-
-initializeTradingManager :: MonadIO m => Text -> IGBrokerAdapter m (Result Text)
-initializeTradingManager sessionToken = do
-  liftIO $ adapterLogInfo "Initializing trading manager (Phase 1 implementation)"
-
-  -- For Phase 1, return success
-  liftIO $ adapterLogInfo "Trading manager initialized successfully (Phase 1 mock)"
-  return $ Right "trading-manager-initialized"
 
 -- Logging helpers
 adapterLogInfo :: Text -> IO ()

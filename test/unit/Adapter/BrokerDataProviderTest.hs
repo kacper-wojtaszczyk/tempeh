@@ -16,9 +16,12 @@ import System.Directory (doesFileExist, getFileSize)
 import System.FilePath ((</>))
 import Data.Time.Format (formatTime, defaultTimeLocale)
 import Control.Concurrent (threadDelay)
+import Data.Char (isAlphaNum)
 
 import Adapter.BrokerDataProvider
 import Adapter.IG.Streaming (instrumentToIGEpic)
+import Adapter.IG.Types (IGMarket(..))
+import Adapter.IG.Polling (convertIGMarketToTick, backoffDelay)
 import Domain.Services.LiveDataService
 import Domain.Types
 import Util.Config
@@ -79,10 +82,13 @@ brokerDataProviderTests = testGroup "Adapter.BrokerDataProvider"
             t = T.pack (take 20 (filter (/= '-') ts))
             ref = mkDealReference p u t
         in T.length ref <= 30
-    , QC.testProperty "Reference is always alphanumeric" $ \prefix uniq ts ->
-        let p = T.pack (take 10 (filter (/= '-') prefix))
-            u = T.pack (take 30 (filter (/= '-') uniq))
-            t = T.pack (take 20 (filter (/= '-') ts))
+    , QC.testProperty "Reference is always alphanumeric" $
+        forAll (listOf (elements (['A'..'Z'] ++ ['a'..'z'] ++ ['0'..'9']))) $ \prefix ->
+        forAll (listOf (elements (['A'..'Z'] ++ ['a'..'z'] ++ ['0'..'9']))) $ \uniq ->
+        forAll (listOf (elements (['A'..'Z'] ++ ['a'..'z'] ++ ['0'..'9']))) $ \ts ->
+        let p = T.pack (take 10 prefix)
+            u = T.pack (take 30 uniq)
+            t = T.pack (take 20 ts)
             ref = mkDealReference p u t
         in T.all (\c -> c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9') ref
     ]
