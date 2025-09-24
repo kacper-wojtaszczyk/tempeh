@@ -38,33 +38,30 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime, diffUTCTime, utctDay)
 import Data.Time.Clock (UTCTime(..))
+import Data.Time.Calendar (toGregorian, fromGregorian)
+import Data.Time.Clock.POSIX (getPOSIXTime)
+import qualified Data.Scientific as Scientific
+import Data.Scientific (Scientific)
+import Data.Char (isAlphaNum, intToDigit, chr, ord)
+import Numeric (showIntAtBase)
+import Data.Bits ((.|.), shiftL)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (isJust, fromMaybe)
 import System.IO.Unsafe (unsafePerformIO)
 import Util.Logger (logInfo, logError, logWarn, logDebug, ComponentName(..), runFileLoggerWithComponent)
 
--- Import our new modular architecture and maintain some legacy compatibility during transition
+-- Import our new modular architecture (Phase 4: Cleaned up from legacy patterns)
 import qualified Adapter.IG.Session as Session
 import qualified Adapter.IG.Connection as Connection
 import qualified Adapter.IG.Trading as Trading
 import qualified Adapter.IG.Error as IGError
+import qualified Adapter.IG.Deals as IGDeals
 -- Keep existing imports that are still needed
 import Adapter.IG.Types
-import Adapter.IG.Polling (igStreamingLoop)  -- Fixed: import from Polling, not Streaming
-import Adapter.IG.Streaming (startLightstreamerConnection, subscribeToPriceUpdates, closeLightstreamerConnection, instrumentToIGEpic)  -- Add missing function
-import Adapter.IG.Auth (loginToIG, logoutFromIG)  -- Temporarily keep legacy auth for session manager compatibility
--- Legacy imports being phased out in Phase 2 (partially migrated):
--- import Adapter.IG.Polling  -- MIGRATED to new approach
--- import Adapter.IG.Auth     -- MIGRATING - using new Session module where possible
-import qualified Adapter.IG.Deals as IGDeals
-import qualified Data.Scientific as Scientific
-import Data.Scientific (Scientific)
-import Data.Char (isAlphaNum, intToDigit, chr, ord)
-import Data.Time.Calendar (toGregorian, fromGregorian)
-import Numeric (showIntAtBase)
-import Data.Bits ((.|.), shiftL)
-import Data.Time.Clock.POSIX (getPOSIXTime)
+import qualified Adapter.IG.Polling as IGPolling
+import qualified Adapter.IG.Streaming as IGStreaming
+import qualified Adapter.IG.Auth as IGAuth
 
 -- | Broker data provider context - simplified for Phase 2+3 implementation
 data BrokerContext = BrokerContext
@@ -145,11 +142,11 @@ instance (MonadIO m) => LiveDataProvider (BrokerDataProviderM m) where
     case maybeConn of
       Nothing -> return $ Right ()
       Just conn -> do
-        -- Logout from IG if we have a session using legacy auth (temporarily during migration)
+        -- Logout from IG if we have a session using qualified auth module
         maybeSession <- liftIO $ readTVarIO (bcIGSession conn)
         case maybeSession of
           Just session -> do
-            logoutResult <- liftIO $ logoutFromIG (bcConfig conn) session
+            logoutResult <- liftIO $ IGAuth.logoutFromIG (bcConfig conn) session
             case logoutResult of
               Left err -> liftIO $ brokerLogError ("Logout failed: " <> T.pack (show err))
               Right _ -> liftIO $ brokerLogInfo "Successfully logged out from IG"
@@ -276,8 +273,8 @@ connectToIGModular connId config now appConfig = do
 
   case (bcUsername config, bcPassword config, bcApiKey config) of
     (Just username, Just password, Just _apiKey) -> do
-      -- Attempt login to IG using legacy auth (temporarily during migration)
-      loginResult <- liftIO $ loginToIG config username password
+      -- Attempt login to IG using qualified auth module
+      loginResult <- liftIO $ IGAuth.loginToIG config username password
       case loginResult of
         Left err -> do
           liftIO $ brokerLogError ("IG login failed: " <> T.pack (show err))
@@ -404,24 +401,24 @@ startWebSocketStreaming conn instrument session = do
     Just subscriptionState -> do
       -- Start WebSocket streaming in background
       _ <- liftIO $ async $ do
-        streamingResult <- startLightstreamerConnection (bcConfig conn) session
+        streamingResult <- IGStreaming.startLightstreamerConnection (bcConfig conn) session
         case streamingResult of
           Left err -> do
             brokerLogError ("Failed to start Lightstreamer connection: " <> T.pack (show err))
             brokerLogWarn "Falling back to REST polling"
-            igStreamingLoop conn instrument
+            IGPolling.igStreamingLoop conn instrument
 
           Right lsConnection -> do
             brokerLogInfo ("Lightstreamer connection established for " <> T.pack (show instrument))
 
             -- Subscribe to price updates
-            subResult <- subscribeToPriceUpdates lsConnection instrument (ssTickBuffer subscriptionState)
+            subResult <- IGStreaming.subscribeToPriceUpdates lsConnection instrument (ssTickBuffer subscriptionState)
             case subResult of
               Left err -> do
                 brokerLogError ("Failed to subscribe to price updates: " <> T.pack (show err))
                 brokerLogWarn "Falling back to REST polling"
-                closeLightstreamerConnection lsConnection
-                igStreamingLoop conn instrument
+                IGStreaming.closeLightstreamerConnection lsConnection
+                IGPolling.igStreamingLoop conn instrument
 
               Right _subscription -> do
                 brokerLogInfo ("Successfully subscribed to WebSocket streaming for " <> T.pack (show instrument))
@@ -435,7 +432,7 @@ startRESTPolling conn instrument = do
   -- Start background polling loop with delay
   _ <- liftIO $ async $ do
     threadDelay 200_000  -- Initial delay so flush is empty
-    igStreamingLoop conn instrument
+    IGPolling.igStreamingLoop conn instrument
   liftIO $ brokerLogInfo ("Started REST polling for " <> T.pack (show instrument))
 
 -- Helper to run broker data provider
@@ -460,7 +457,7 @@ sideToIGDirection Domain.Types.Sell = SELL
 
 instrumentToEpic :: Instrument -> Text
 instrumentToEpic instrument =
-  case instrumentToIGEpic instrument of
+  case IGStreaming.instrumentToIGEpic instrument of
     Just epic -> epic
     Nothing -> error $ "Unsupported instrument: " <> show instrument
 
