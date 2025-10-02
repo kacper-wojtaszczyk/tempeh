@@ -73,9 +73,22 @@ endLineNumberBaseZero = file_length_minus_one
 ### Terminal Output [CRITICAL]
 **IMPORTANT**: Redirect all command output to files due to terminal access limitations:
 ```bash
+# ✅ WORKING APPROACH - Use literal timestamps
+command 2>&1 | tee ai/output_1727899500.txt
+
+# ❌ BROKEN APPROACH - Dynamic timestamp calculation fails
 command 2>&1 | tee ai/output_$(date +%s).txt
 ```
+**SOLUTION**: Use literal timestamps in filenames instead of dynamic `$(date +%s)` calculation. The dynamic timestamp expansion doesn't work in this environment, but literal timestamps work perfectly.
+
 Read the file to verify command's success and check results instead of relying on direct terminal access. Retry up to 3 times if empty/incomplete.
+
+**VERIFICATION PROTOCOL [CRITICAL]**: 
+- **NEVER rely on `get_errors` tool alone** - it only shows syntax errors, not compilation success
+- **ALWAYS verify command success through transient file output** containing successful command execution
+- If command success cannot be verified through file output due to system limitations, **REPORT BACK** to the user immediately
+- Never proceed with subsequent tasks (like documentation updates) without confirmed successful execution from file output
+- `get_errors` tool is supplementary only - successful command execution must be verified through output files
 
 ### Development Practices
 - Whenever you add new code it must be covered by tests.

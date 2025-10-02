@@ -31,7 +31,7 @@ import Network.HTTP.Types.Status (statusCode)
 import Adapter.IG.Types
 import Util.Config (BrokerConfig(..))
 import Util.Error (Result, brokerError)
-import Util.Logger (ComponentLogger, makeComponentLogger)
+import Util.Logger (ComponentLogger, makeComponentLogger, compLogInfo, compLogError, compLogDebug, compLogWarn)
 
 -- Component logger for this module
 dealsLogger :: ComponentLogger

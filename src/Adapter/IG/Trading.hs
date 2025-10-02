@@ -32,7 +32,7 @@ import Adapter.IG.Deals (createPosition, getDealConfirmation)
 import qualified Adapter.IG.Deals as Deals
 import Util.Config (BrokerConfig)
 import Util.Error (Result, brokerError)
-import Util.Logger (ComponentLogger, makeComponentLogger)
+import Util.Logger (ComponentLogger, makeComponentLogger, compLogInfo, compLogError, compLogDebug, compLogWarn)
 
 -- | Trading context for operations
 data TradingContext = TradingContext
@@ -196,4 +196,3 @@ instrumentToIGEpic = instrumentToEpic
 
 sideToIGDirection :: Side -> Direction
 sideToIGDirection = sideToDirection
-

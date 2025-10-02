@@ -25,7 +25,7 @@ import Adapter.IG.Types (IGSession(..))
 import Adapter.IG.Auth (loginToIG, logoutFromIG)
 import Util.Config (BrokerConfig)
 import Util.Error (Result, TempehError)
-import Util.Logger (ComponentLogger, makeComponentLogger)
+import Util.Logger (ComponentLogger, makeComponentLogger, compLogInfo, compLogError, compLogDebug, compLogWarn)
 
 -- | Session manager monad for handling IG session lifecycle
 newtype SessionManager m a = SessionManager
@@ -79,4 +79,3 @@ validateSession = do
   case maybeSession of
     Nothing -> return False
     Just session -> return $ igExpiresAt session > now
-

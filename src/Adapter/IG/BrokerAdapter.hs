@@ -32,7 +32,7 @@ import Domain.Services.LiveDataService
 import Domain.Types
 import Util.Config (AppConfig(..), BrokerConfig(..), BrokerEnvironment(..))
 import Util.Error (Result, brokerError, TempehError)
-import Util.Logger (ComponentLogger, makeComponentLogger)
+import Util.Logger (ComponentLogger, makeComponentLogger, compLogInfo, compLogError, compLogDebug, compLogWarn)
 
 -- Import our new modular architecture
 import qualified Adapter.IG.Session as Session

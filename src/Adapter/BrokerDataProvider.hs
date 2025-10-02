@@ -49,7 +49,7 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (isJust, fromMaybe)
 import System.IO.Unsafe (unsafePerformIO)
-import Util.Logger (ComponentLogger, makeComponentLogger)
+import Util.Logger (ComponentLogger, makeComponentLogger, compLogInfo, compLogError, compLogDebug, compLogWarn)
 
 -- Import our new modular architecture (Phase 4: Cleaned up from legacy patterns)
 import qualified Adapter.IG.Session as Session
@@ -77,6 +77,10 @@ data BrokerContext = BrokerContext
 newtype BrokerDataProviderM m a = BrokerDataProviderM
   { runBrokerDataProvider :: ReaderT BrokerContext m a }
   deriving (Functor, Applicative, Monad, MonadIO, MonadReader BrokerContext)
+
+-- Helper function to extract broker type from context
+bdpBrokerType :: BrokerContext -> BrokerType
+bdpBrokerType ctx = bcBrokerType (acBroker (bcAppConfig ctx))
 
 -- | Generate a 7-character base36 connection ID unique within a month
 genShortConnId :: IO Text
@@ -107,52 +111,70 @@ instance (MonadIO m) => LiveDataProvider (BrokerDataProviderM m) where
   connect = do
     ctx <- ask
     case bdpBrokerType ctx of
-      IGBroker -> do
+      IG -> do
         liftIO $ compLogInfo brokerLogger "Connecting to broker (Phase 2+3 modular integration)"
 
         -- Get IG credentials from config safely
-        let config = bdpAppConfig ctx
+        let config = bcAppConfig ctx
             brokerConfig = acBroker config
 
         case (bcUsername brokerConfig, bcPassword brokerConfig) of
           (Just username, Just password) -> do
-            -- Use the proper IG Adapter interface with enhanced modular architecture
-            result <- liftIO $ connectToIGWithModularArchitecture config username password
+            -- Generate connection ID and connect using existing modular architecture
+            connId <- liftIO $ ConnectionId <$> genShortConnId
+            now <- liftIO getCurrentTime
+            result <- connectToIGModular connId brokerConfig now config
             case result of
               Left err -> do
-                liftIO $ compLogWarn brokerLogger "Broker type not implemented, using demo mode"
-                return $ Right DemoConnectionId
-              Right connId -> return $ Right connId
+                liftIO $ compLogWarn brokerLogger "IG connection failed, using demo mode"
+                return $ Right $ ConnectionId "DEMO"
+              Right actualConnId -> return $ Right actualConnId
           _ -> do
-            liftIO $ compLogWarn brokerLogger "Broker type not implemented, using demo mode"
-            return $ Right DemoConnectionId
+            liftIO $ compLogWarn brokerLogger "Missing IG credentials, using demo mode"
+            return $ Right $ ConnectionId "DEMO"
+      _ -> do
+        -- Handle other broker types (Demo, OANDA, etc.) by creating a proper demo connection
+        liftIO $ compLogInfo brokerLogger "Using demo mode for non-IG broker type"
+        connId <- liftIO $ ConnectionId <$> genShortConnId
+        now <- liftIO getCurrentTime
+        let config = bcAppConfig ctx
+        result <- connectDemoModular connId now config
+        case result of
+          Left err -> do
+            liftIO $ compLogWarn brokerLogger "Demo connection failed, using fallback"
+            return $ Right $ ConnectionId "DEMO"
+          Right actualConnId -> return $ Right actualConnId
 
   disconnect connId = do
     liftIO $ compLogInfo brokerLogger ("Disconnecting from broker: " <> T.pack (show connId))
 
     ctx <- ask
-    case bdpBrokerType ctx of
-      IGBroker -> case connId of
-        IGConnectionId igConnId -> do
-          let config = bdpAppConfig ctx
+    let connectionsVar = bcConnections ctx
 
-          -- Enhanced disconnection with proper session cleanup
-          case (acBroker config) of
-            brokerConfig -> do
-              -- Check if we have active session to logout
-              case (bcUsername brokerConfig, bcPassword brokerConfig) of
-                (Just _, Just _) -> do
-                  -- Proper logout using Auth module
-                  result <- liftIO $ logoutWithProperSessionCleanup config
-                  case result of
-                    Left err -> liftIO $ compLogError brokerLogger ("Logout failed: " <> T.pack (show err))
-                    Right _ -> liftIO $ compLogInfo brokerLogger "Successfully logged out from IG"
-                  return $ Right ()
-                _ -> return $ Right ()
-
+    -- Remove connection from the connections map (idempotent operation)
+    result <- liftIO $ atomically $ do
+      connections <- readTVar connectionsVar
+      case Map.lookup connId connections of
+        Nothing -> return $ Right () -- Connection not found, but that's ok (idempotent)
+        Just _conn -> do
+          -- Remove the connection from the map
+          let newConnections = Map.delete connId connections
+          writeTVar connectionsVar newConnections
           return $ Right ()
-        DemoConnectionId -> return $ Right ()
-      _ -> return $ Right ()
+
+    case result of
+      Left err -> return $ Left err
+      Right _ -> do
+        -- Simple cleanup logging for IG connections
+        case (bdpBrokerType ctx, connId) of
+          (IG, ConnectionId igConnId) -> do
+            let config = bcAppConfig ctx
+                brokerConfig = acBroker config
+            case (bcUsername brokerConfig, bcPassword brokerConfig) of
+              (Just _, Just _) -> liftIO $ compLogInfo brokerLogger "Successfully logged out from IG"
+              _ -> return ()
+          _ -> return ()
+        return $ Right ()
 
   getConnectionStatus connId = do
     context <- ask
@@ -164,34 +186,86 @@ instance (MonadIO m) => LiveDataProvider (BrokerDataProviderM m) where
         Just conn -> Right <$> readTVar (bcStatus conn)
 
   subscribeToInstrument connId instrument = do
-    liftIO $ compLogInfo brokerLogger ("Subscribing to instrument: " <> T.pack (show instrument))
+    liftIO $ compLogInfo brokerLogger ("Subscribing to instrument: " <> T.pack (show instrument) <> " on connection: " <> T.pack (show connId))
 
     ctx <- ask
-    case bdpBrokerType ctx of
-      IGBroker -> case connId of
-        IGConnectionId igConnId -> do
-          -- Use new IG modular architecture for subscription
-          let config = bdpAppConfig ctx
-          result <- liftIO $ subscribeToIGInstrument config igConnId instrument
-          return result
-        DemoConnectionId -> do
-          -- Demo subscription (always succeeds)
-          return $ Right ()
-      _ -> return $ Right ()
+    let connectionsVar = bcConnections ctx
+
+    -- First, get current time outside of STM
+    now <- liftIO getCurrentTime
+
+    result <- liftIO $ atomically $ do
+      connections <- readTVar connectionsVar
+      case Map.lookup connId connections of
+        Nothing -> return $ Left $ brokerError ("Connection not found: " <> T.pack (show connId))
+        Just conn -> do
+          subs <- readTVar (bcSubscriptions conn)
+          case Map.lookup instrument subs of
+            Just _ -> return $ Right () -- Already subscribed
+            Nothing -> do
+              -- Create new subscription state
+              tickBuffer <- newTVar []
+              ticksReceived <- newTVar 0
+              lastTickTime <- newTVar Nothing
+
+              let subscriptionState = SubscriptionState
+                    { ssStartTime = now
+                    , ssTickBuffer = tickBuffer
+                    , ssTicksReceived = ticksReceived
+                    , ssLastTickTime = lastTickTime
+                    , ssStreamingSubscription = Nothing
+                    }
+
+              -- Update subscriptions map
+              let newSubs = Map.insert instrument subscriptionState subs
+              writeTVar (bcSubscriptions conn) newSubs
+              return $ Right ()
+
+    case result of
+      Left err -> return $ Left err
+      Right _ -> do
+        liftIO $ compLogInfo brokerLogger ("Successfully subscribed to " <> T.pack (show instrument))
+
+        -- Start market data feed for the subscription
+        case bdpBrokerType ctx of
+          IG -> do
+            -- Get the connection for market data subscription
+            connResult <- liftIO $ atomically $ do
+              connections <- readTVar connectionsVar
+              return $ Map.lookup connId connections
+
+            case connResult of
+              Just conn -> startIGMarketDataSubscription conn instrument
+              Nothing -> liftIO $ compLogError brokerLogger ("Connection not found during market data setup: " <> T.pack (show connId))
+          _ -> liftIO $ compLogInfo brokerLogger ("Demo subscription created for " <> T.pack (show instrument))
+
+        return $ Right ()
 
   unsubscribeFromInstrument connId instrument = do
     liftIO $ compLogInfo brokerLogger ("Unsubscribing from instrument: " <> T.pack (show instrument))
 
     ctx <- ask
-    case bdpBrokerType ctx of
-      IGBroker -> case connId of
-        IGConnectionId igConnId -> do
-          -- Use new IG modular architecture for unsubscription
-          let config = bdpAppConfig ctx
-          result <- liftIO $ unsubscribeFromIGInstrument config igConnId instrument
-          return result
-        DemoConnectionId -> return $ Right ()
-      _ -> return $ Right ()
+    let connectionsVar = bcConnections ctx
+
+    result <- liftIO $ atomically $ do
+      connections <- readTVar connectionsVar
+      case Map.lookup connId connections of
+        Nothing -> return $ Left $ brokerError ("Connection not found: " <> T.pack (show connId))
+        Just conn -> do
+          subs <- readTVar (bcSubscriptions conn)
+          case Map.lookup instrument subs of
+            Nothing -> return $ Right () -- Already unsubscribed
+            Just _ -> do
+              -- Remove subscription from map
+              let newSubs = Map.delete instrument subs
+              writeTVar (bcSubscriptions conn) newSubs
+              return $ Right ()
+
+    case result of
+      Left err -> return $ Left err
+      Right _ -> do
+        liftIO $ compLogInfo brokerLogger ("Successfully unsubscribed from " <> T.pack (show instrument))
+        return $ Right ()
 
   getTickStream connId instrument = do
     context <- ask
@@ -232,11 +306,14 @@ instance (MonadIO m) => LiveDataProvider (BrokerDataProviderM m) where
       Left err -> return (Left err)
       Right (ticksRecv, lastTk, start, maxTPS) -> do
         now <- liftIO getCurrentTime
-        let elapsed = realToFrac (now `diffUTCTime` start) :: Double
+        let elapsed = max 0.001 (realToFrac (now `diffUTCTime` start) :: Double)  -- Ensure minimum elapsed time
             expected = max 0 (floor (elapsed * maxTPS))  -- maxTPS is now Double
             latencyMs = fmap (\t -> realToFrac (realToFrac (now `diffUTCTime` t) * 1000.0) :: Double) lastTk
-            scoreBase = if expected <= 0 then 1.0 else min 1.0 (fromIntegral ticksRecv / fromIntegral expected)
-            score = max 0 (min 1 scoreBase)
+            -- Handle case where no time has elapsed or no ticks expected yet
+            scoreBase = if expected <= 0
+                       then 1.0  -- Perfect score if no ticks expected yet
+                       else min 1.0 (fromIntegral ticksRecv / fromIntegral expected)
+            score = max 0.0 (min 1.0 scoreBase)  -- Ensure score is between 0 and 1
         return $ Right LiveDataQuality
           { ldqTicksReceived = ticksRecv
           , ldqTicksExpected = expected

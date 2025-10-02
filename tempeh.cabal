@@ -69,6 +69,7 @@ library
     , http-types
     , async
     , http-client-tls
+    , case-insensitive
     , websockets
     , wuss
     , network

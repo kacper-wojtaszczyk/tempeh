@@ -17,12 +17,14 @@ import qualified Data.Aeson as JSON
 import qualified Data.ByteString.Lazy as LBS
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types.Status (statusCode)
+import qualified Network.HTTP.Types.Header
+import qualified Data.CaseInsensitive as CI
 
 import Adapter.IG.Types
 import Domain.Types
 import Util.Config (BrokerConfig(..))
 import Util.Error (Result, brokerError)
-import Util.Logger (ComponentLogger, makeComponentLogger)
+import Util.Logger (ComponentLogger, makeComponentLogger, compLogInfo, compLogError, compLogDebug, compLogWarn)
 
 -- Component logger for this module
 authLogger :: ComponentLogger
@@ -50,10 +52,10 @@ doLogin config baseUrl username password = do
   compLogDebug authLogger "Creating login request"
 
   -- Create request body
-  let loginRequest = LoginRequest
-        { identifier = username
-        , password = password
-        , encryptedPassword = False
+  let loginRequest = IGLoginRequest
+        { loginUsername = username
+        , loginPassword = password
+        , loginEncryptedPassword = False
         }
 
   -- Create HTTP request
@@ -88,6 +90,47 @@ doLogin config baseUrl username password = do
     else do
       compLogError authLogger ("Login failed with status: " <> T.pack (show status))
       return $ Left $ brokerError ("Login failed with status: " <> T.pack (show status))
+
+-- Parse login response to extract session tokens
+parseLoginResponse :: Network.HTTP.Types.Header.ResponseHeaders -> LBS.ByteString -> IO (Result IGSession)
+parseLoginResponse headers body = do
+  compLogDebug authLogger "Parsing login response"
+
+  -- Extract CST and X-SECURITY-TOKEN from headers
+  let cstToken = extractHeaderValue "CST" headers
+      securityToken = extractHeaderValue "X-SECURITY-TOKEN" headers
+
+  case (cstToken, securityToken) of
+    (Just cst, Just security) -> do
+      -- Parse JSON response for additional session info
+      case JSON.decode body :: Maybe IGLoginResponse of
+        Just loginResp -> do
+          now <- getCurrentTime
+          let session = IGSession
+                { igSessionToken = cst  -- Use CST as session token
+                , igCST = cst
+                , igXSecurityToken = security
+                , igLightstreamerEndpoint = responseLightstreamerEndpoint loginResp
+                , igExpiresAt = addUTCTime 21600 now -- 6 hours from now
+                }
+          compLogInfo authLogger "Login successful"
+          return $ Right session
+        Nothing -> do
+          compLogError authLogger "Failed to parse login response JSON"
+          compLogDebug authLogger ("Response body: " <> T.pack (show (LBS.take 1000 body)))
+          return $ Left $ brokerError "Failed to parse login response"
+    _ -> do
+      compLogError authLogger ("Missing session tokens in response headers. CST: " <> T.pack (show cstToken) <> ", Security: " <> T.pack (show securityToken))
+      return $ Left $ brokerError "Missing session tokens in login response"
+
+-- Helper function to extract header values
+extractHeaderValue :: String -> Network.HTTP.Types.Header.ResponseHeaders -> Maybe Text
+extractHeaderValue headerName headers =
+  case lookup (fromString headerName) headers of
+    Just value -> Just (TE.decodeUtf8 value)
+    Nothing -> Nothing
+  where
+    fromString = CI.mk . TE.encodeUtf8 . T.pack
 
 logoutFromIG :: BrokerConfig -> IGSession -> IO (Result ())
 logoutFromIG config session = do
