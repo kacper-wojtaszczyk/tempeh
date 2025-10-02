@@ -8,8 +8,6 @@ A Haskell-based forex trading bot with backtesting and **live trading capabiliti
 
 This project has successfully evolved from backtesting to **live trading with real-time market data** via comprehensive IG broker integration. The backtesting engine is complete and battle-tested, and we now have a **fully operational live trading system** with **complete modular IG adapter architecture** processing real market data via both REST API and **complete WebSocket streaming**.
 
-**Major Achievement**: Complete IG adapter modular refactoring successfully deployed with **442/442 tests passing** and zero legacy debt.
-
 ### ✅ Completed Features
 
 #### Backtesting Engine
@@ -25,42 +23,6 @@ This project has successfully evolved from backtesting to **live trading with re
 - **Live signal generation** from real-time market data
 - **Production-ready REST API integration** with comprehensive error handling
 - **Complete TLCP WebSocket implementation** with proper authentication and session management
-
-### ✅ WebSocket Streaming: BREAKTHROUGH ACHIEVED
-- **Lightstreamer WebSocket integration** - FULLY OPERATIONAL ✅
-  - ✅ Complete TLCP protocol implementation with proper authentication
-  - ✅ Session creation, binding, and subscription management  
-  - ✅ Real-time tick data streaming with sub-second latency
-  - ✅ Connection stability with proper error recovery
-  - ✅ Complete message parsing (CONOK, SUBOK, U-format updates)
-  - ✅ Timestamp parsing and tick creation pipeline
-  - ✅ Live EURUSD bid/ask prices: `Tick {tTime = 2025-09-05 14:50:48.695 UTC, tBid = Price 1.17314, tAsk = Price 1.17323}`
-
-### ✅ IG Adapter Modular Architecture: FULLY COMPLETED
-- **Complete modular refactoring** - PRODUCTION READY ✅
-  - ✅ **Phase 1**: Foundation modules (Session, Connection, Trading, Error)
-  - ✅ **Phase 2**: BrokerDataProvider migration and integration
-  - ✅ **Phase 3**: Complete BrokerAdapter orchestration with error recovery
-  - ✅ **Phase 4**: Legacy cleanup - all temporary artifacts and deprecated patterns removed
-  - ✅ Multi-connection support for concurrent IG operations
-  - ✅ Automatic session management with renewal and lifecycle handling
-  - ✅ Connection-aware subscriptions with proper state isolation
-  - ✅ Environment-aware error recovery (demo vs production mode)
-  - ✅ Thread-safe STM-based state management
-  - ✅ **442/442 tests passing** with comprehensive coverage across all modules
-
-### 🎯 Next Phase: Performance Optimization
-**Priority Focus**: System resilience and monitoring enhancements
-- **Phase 5**: Performance optimization and monitoring
-  - Circuit breaker patterns for external API calls
-  - Enhanced metrics collection and performance monitoring
-  - Resource pooling for improved efficiency
-  - Sophisticated rate limiting for IG API calls
-- **Phase 6**: Advanced resilience features
-  - Comprehensive health check endpoints
-  - Proactive alerting system for system health and performance
-  - Load testing of the modular architecture
-  - Memory usage optimization and profiling
 
 ## 🏗️ Architecture
 

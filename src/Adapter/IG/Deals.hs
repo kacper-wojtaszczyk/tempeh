@@ -31,20 +31,11 @@ import Network.HTTP.Types.Status (statusCode)
 import Adapter.IG.Types
 import Util.Config (BrokerConfig(..))
 import Util.Error (Result, brokerError)
-import Util.Logger (logInfo, logError, logWarn, logDebug, ComponentName(..), runFileLoggerWithComponent)
+import Util.Logger (ComponentLogger, makeComponentLogger)
 
--- Adapter-scoped logging helpers
-dealsLogInfo :: Text -> IO ()
-dealsLogInfo msg = runFileLoggerWithComponent (ComponentName "IG_DEALS") $ logInfo msg
-
-dealsLogWarn :: Text -> IO ()
-dealsLogWarn msg = runFileLoggerWithComponent (ComponentName "IG_DEALS") $ logWarn msg
-
-dealsLogError :: Text -> IO ()
-dealsLogError msg = runFileLoggerWithComponent (ComponentName "IG_DEALS") $ logError msg
-
-dealsLogDebug :: Text -> IO ()
-dealsLogDebug msg = runFileLoggerWithComponent (ComponentName "IG_DEALS") $ logDebug msg
+-- Component logger for this module
+dealsLogger :: ComponentLogger
+dealsLogger = makeComponentLogger "IG_DEALS"
 
 -- Helper function to create authenticated requests
 createAuthenticatedRequest :: BrokerConfig -> IGSession -> String -> String -> IO Request
@@ -90,7 +81,7 @@ createVersionedRequest config session path version = do
 -- Get all positions
 getPositions :: BrokerConfig -> IGSession -> IO (Result [IGPosition])
 getPositions config session = do
-  dealsLogInfo "Fetching all positions"
+  compLogInfo dealsLogger "Fetching all positions"
 
   result <- try $ do
     request <- createVersionedRequest config session "/positions" "2"
@@ -99,32 +90,32 @@ getPositions config session = do
 
   case result of
     Left (ex :: SomeException) -> do
-      dealsLogError ("Failed to fetch positions: " <> T.pack (show ex))
+      compLogError dealsLogger ("Failed to fetch positions: " <> T.pack (show ex))
       return $ Left $ brokerError ("Failed to fetch positions: " <> T.pack (show ex))
 
     Right response -> do
       let status = responseStatus response
           body = responseBody response
 
-      dealsLogDebug ("Positions response status: " <> T.pack (show status))
+      compLogDebug dealsLogger ("Positions response status: " <> T.pack (show status))
 
       if statusCode status == 200
         then case JSON.decode body :: Maybe IGPositionResponse of
           Just posResp -> do
-            dealsLogInfo ("Found " <> T.pack (show (length (positionsData posResp))) <> " positions")
+            compLogInfo dealsLogger ("Found " <> T.pack (show (length (positionsData posResp))) <> " positions")
             return $ Right $ positionsData posResp
           Nothing -> do
-            dealsLogError "Failed to parse positions response"
-            dealsLogDebug ("Response body: " <> T.pack (show (LBS.take 500 body)))
+            compLogError dealsLogger "Failed to parse positions response"
+            compLogDebug dealsLogger ("Response body: " <> T.pack (show (LBS.take 500 body)))
             return $ Left $ brokerError "Failed to parse positions response"
         else do
-          dealsLogError ("Get positions failed with status: " <> T.pack (show status))
+          compLogError dealsLogger ("Get positions failed with status: " <> T.pack (show status))
           return $ Left $ brokerError ("Get positions failed with status: " <> T.pack (show status))
 
 -- Get single position by deal ID
 getPosition :: BrokerConfig -> IGSession -> Text -> IO (Result IGPosition)
 getPosition config session dealId = do
-  dealsLogInfo ("Fetching position: " <> dealId)
+  compLogInfo dealsLogger ("Fetching position: " <> dealId)
 
   result <- try $ do
     request <- createVersionedRequest config session ("/positions/" <> T.unpack dealId) "2"
@@ -133,7 +124,7 @@ getPosition config session dealId = do
 
   case result of
     Left (ex :: SomeException) -> do
-      dealsLogError ("Failed to fetch position: " <> T.pack (show ex))
+      compLogError dealsLogger ("Failed to fetch position: " <> T.pack (show ex))
       return $ Left $ brokerError ("Failed to fetch position: " <> T.pack (show ex))
 
     Right response -> do
@@ -143,19 +134,19 @@ getPosition config session dealId = do
       if statusCode status == 200
         then case JSON.decode body :: Maybe IGPosition of
           Just position -> do
-            dealsLogInfo ("Retrieved position: " <> dealId)
+            compLogInfo dealsLogger ("Retrieved position: " <> dealId)
             return $ Right position
           Nothing -> do
-            dealsLogError "Failed to parse position response"
+            compLogError dealsLogger "Failed to parse position response"
             return $ Left $ brokerError "Failed to parse position response"
         else do
-          dealsLogError ("Get position failed with status: " <> T.pack (show status))
+          compLogError dealsLogger ("Get position failed with status: " <> T.pack (show status))
           return $ Left $ brokerError ("Get position failed with status: " <> T.pack (show status))
 
 -- Create new position
 createPosition :: BrokerConfig -> IGSession -> IGDealRequest -> IO (Result IGDealResponse)
 createPosition config session dealReq = do
-  dealsLogInfo ("Creating position: " <> dealEpic dealReq <> " " <> T.pack (show (dealDirection dealReq)) <> " " <> T.pack (show (dealSize dealReq)) <> " " <> T.pack (show (dealReference dealReq)))
+  compLogInfo dealsLogger ("Creating position: " <> dealEpic dealReq <> " " <> T.pack (show (dealDirection dealReq)) <> " " <> T.pack (show (dealSize dealReq)))
 
   result <- try $ do
     request <- createJsonRequest config session "POST" "/positions/otc" "2" (JSON.toJSON dealReq)
@@ -164,35 +155,33 @@ createPosition config session dealReq = do
 
   case result of
     Left (ex :: SomeException) -> do
-      dealsLogError ("Failed to create position: " <> T.pack (show ex))
+      compLogError dealsLogger ("Failed to create position: " <> T.pack (show ex))
       return $ Left $ brokerError ("Failed to create position: " <> T.pack (show ex))
 
     Right response -> do
       let status = responseStatus response
           body = responseBody response
 
-      dealsLogInfo ("Position creation response status: " <> T.pack (show status))
-      dealsLogInfo ("Position creation response body: " <> T.pack (show (LBS.take 1000 body)))
-      return response
+      compLogDebug dealsLogger ("Position creation response status: " <> T.pack (show status))
 
       if statusCode status == 200
         then case JSON.decode body :: Maybe IGDealResponse of
           Just dealResp -> do
-            dealsLogInfo ("Position creation request submitted: " <> dealResponseReference dealResp)
+            compLogInfo dealsLogger ("Position creation request submitted: " <> dealResponseReference dealResp)
             return $ Right dealResp
           Nothing -> do
-            dealsLogError "Failed to parse deal response"
-            dealsLogDebug ("Response body: " <> T.pack (show (LBS.take 500 body)))
+            compLogError dealsLogger "Failed to parse deal response"
+            compLogDebug dealsLogger ("Response body: " <> T.pack (show (LBS.take 500 body)))
             return $ Left $ brokerError "Failed to parse deal response"
         else do
-          dealsLogError ("Create position failed with status: " <> T.pack (show status))
-          dealsLogDebug ("Response body: " <> T.pack (show (LBS.take 500 body)))
+          compLogError dealsLogger ("Create position failed with status: " <> T.pack (show status))
+          compLogDebug dealsLogger ("Response body: " <> T.pack (show (LBS.take 500 body)))
           return $ Left $ brokerError ("Create position failed with status: " <> T.pack (show status))
 
 -- Amend existing position
 amendPosition :: BrokerConfig -> IGSession -> Text -> IGDealRequest -> IO (Result IGDealResponse)
 amendPosition config session dealId amendReq = do
-  dealsLogInfo ("Amending position: " <> dealId)
+  compLogInfo dealsLogger ("Amending position: " <> dealId)
 
   result <- try $ do
     request <- createJsonRequest config session "PUT" ("/positions/otc/" <> T.unpack dealId) "2" (JSON.toJSON amendReq)
@@ -201,7 +190,7 @@ amendPosition config session dealId amendReq = do
 
   case result of
     Left (ex :: SomeException) -> do
-      dealsLogError ("Failed to amend position: " <> T.pack (show ex))
+      compLogError dealsLogger ("Failed to amend position: " <> T.pack (show ex))
       return $ Left $ brokerError ("Failed to amend position: " <> T.pack (show ex))
 
     Right response -> do
@@ -211,19 +200,19 @@ amendPosition config session dealId amendReq = do
       if statusCode status == 200
         then case JSON.decode body :: Maybe IGDealResponse of
           Just dealResp -> do
-            dealsLogInfo ("Position amendment submitted: " <> dealResponseReference dealResp)
+            compLogInfo dealsLogger ("Position amendment submitted: " <> dealResponseReference dealResp)
             return $ Right dealResp
           Nothing -> do
-            dealsLogError "Failed to parse amendment response"
+            compLogError dealsLogger "Failed to parse amendment response"
             return $ Left $ brokerError "Failed to parse amendment response"
         else do
-          dealsLogError ("Amend position failed with status: " <> T.pack (show status))
+          compLogError dealsLogger ("Amend position failed with status: " <> T.pack (show status))
           return $ Left $ brokerError ("Amend position failed with status: " <> T.pack (show status))
 
 -- Close position using DELETE /positions/otc with criteria
 closePosition :: BrokerConfig -> IGSession -> IGDealRequest -> IO (Result IGDealResponse)
 closePosition config session closeReq = do
-  dealsLogInfo ("Closing position with criteria")
+  compLogInfo dealsLogger ("Closing position with criteria")
 
   result <- try $ do
     request <- createJsonRequest config session "DELETE" "/positions/otc" "1" (JSON.toJSON closeReq)
@@ -232,7 +221,7 @@ closePosition config session closeReq = do
 
   case result of
     Left (ex :: SomeException) -> do
-      dealsLogError ("Failed to close position: " <> T.pack (show ex))
+      compLogError dealsLogger ("Failed to close position: " <> T.pack (show ex))
       return $ Left $ brokerError ("Failed to close position: " <> T.pack (show ex))
 
     Right response -> do
@@ -242,19 +231,19 @@ closePosition config session closeReq = do
       if statusCode status == 200
         then case JSON.decode body :: Maybe IGDealResponse of
           Just dealResp -> do
-            dealsLogInfo ("Position close request submitted: " <> dealResponseReference dealResp)
+            compLogInfo dealsLogger ("Position close request submitted: " <> dealResponseReference dealResp)
             return $ Right dealResp
           Nothing -> do
-            dealsLogError "Failed to parse close response"
+            compLogError dealsLogger "Failed to parse close response"
             return $ Left $ brokerError "Failed to parse close response"
         else do
-          dealsLogError ("Close position failed with status: " <> T.pack (show status))
+          compLogError dealsLogger ("Close position failed with status: " <> T.pack (show status))
           return $ Left $ brokerError ("Close position failed with status: " <> T.pack (show status))
 
 -- Close position by deal ID
 closePositionById :: BrokerConfig -> IGSession -> Text -> IGDealRequest -> IO (Result IGDealResponse)
 closePositionById config session dealId closeReq = do
-  dealsLogInfo ("Closing position by ID: " <> dealId)
+  compLogInfo dealsLogger ("Closing position by ID: " <> dealId)
 
   result <- try $ do
     request <- createJsonRequest config session "DELETE" ("/positions/" <> T.unpack dealId) "1" (JSON.toJSON closeReq)
@@ -263,7 +252,7 @@ closePositionById config session dealId closeReq = do
 
   case result of
     Left (ex :: SomeException) -> do
-      dealsLogError ("Failed to close position by ID: " <> T.pack (show ex))
+      compLogError dealsLogger ("Failed to close position by ID: " <> T.pack (show ex))
       return $ Left $ brokerError ("Failed to close position by ID: " <> T.pack (show ex))
 
     Right response -> do
@@ -273,13 +262,13 @@ closePositionById config session dealId closeReq = do
       if statusCode status == 200
         then case JSON.decode body :: Maybe IGDealResponse of
           Just dealResp -> do
-            dealsLogInfo ("Position close by ID submitted: " <> dealResponseReference dealResp)
+            compLogInfo dealsLogger ("Position close by ID submitted: " <> dealResponseReference dealResp)
             return $ Right dealResp
           Nothing -> do
-            dealsLogError "Failed to parse close by ID response"
+            compLogError dealsLogger "Failed to parse close by ID response"
             return $ Left $ brokerError "Failed to parse close by ID response"
         else do
-          dealsLogError ("Close position by ID failed with status: " <> T.pack (show status))
+          compLogError dealsLogger ("Close position by ID failed with status: " <> T.pack (show status))
           return $ Left $ brokerError ("Close position by ID failed with status: " <> T.pack (show status))
 
 -- Working Orders Management Functions
@@ -287,7 +276,7 @@ closePositionById config session dealId closeReq = do
 -- Get all working orders
 getWorkingOrders :: BrokerConfig -> IGSession -> IO (Result [IGWorkingOrder])
 getWorkingOrders config session = do
-  dealsLogInfo "Fetching all working orders"
+  compLogInfo dealsLogger "Fetching all working orders"
 
   result <- try $ do
     request <- createVersionedRequest config session "/working-orders" "2"
@@ -296,7 +285,7 @@ getWorkingOrders config session = do
 
   case result of
     Left (ex :: SomeException) -> do
-      dealsLogError ("Failed to fetch working orders: " <> T.pack (show ex))
+      compLogError dealsLogger ("Failed to fetch working orders: " <> T.pack (show ex))
       return $ Left $ brokerError ("Failed to fetch working orders: " <> T.pack (show ex))
 
     Right response -> do
@@ -306,19 +295,19 @@ getWorkingOrders config session = do
       if statusCode status == 200
         then case JSON.decode body :: Maybe IGWorkingOrderResponse of
           Just orderResp -> do
-            dealsLogInfo ("Found " <> T.pack (show (length (workingOrdersData orderResp))) <> " working orders")
+            compLogInfo dealsLogger ("Found " <> T.pack (show (length (workingOrdersData orderResp))) <> " working orders")
             return $ Right $ workingOrdersData orderResp
           Nothing -> do
-            dealsLogError "Failed to parse working orders response"
+            compLogError dealsLogger "Failed to parse working orders response"
             return $ Left $ brokerError "Failed to parse working orders response"
         else do
-          dealsLogError ("Get working orders failed with status: " <> T.pack (show status))
+          compLogError dealsLogger ("Get working orders failed with status: " <> T.pack (show status))
           return $ Left $ brokerError ("Get working orders failed with status: " <> T.pack (show status))
 
 -- Create working order
 createWorkingOrder :: BrokerConfig -> IGSession -> IGWorkingOrderRequest -> IO (Result IGDealResponse)
 createWorkingOrder config session orderReq = do
-  dealsLogInfo ("Creating working order: " <> workingOrderReqEpic orderReq)
+  compLogInfo dealsLogger ("Creating working order: " <> workingOrderReqEpic orderReq)
 
   result <- try $ do
     request <- createJsonRequest config session "POST" "/working-orders/otc" "2" (JSON.toJSON orderReq)
@@ -327,7 +316,7 @@ createWorkingOrder config session orderReq = do
 
   case result of
     Left (ex :: SomeException) -> do
-      dealsLogError ("Failed to create working order: " <> T.pack (show ex))
+      compLogError dealsLogger ("Failed to create working order: " <> T.pack (show ex))
       return $ Left $ brokerError ("Failed to create working order: " <> T.pack (show ex))
 
     Right response -> do
@@ -337,19 +326,19 @@ createWorkingOrder config session orderReq = do
       if statusCode status == 200
         then case JSON.decode body :: Maybe IGDealResponse of
           Just dealResp -> do
-            dealsLogInfo ("Working order creation submitted: " <> dealResponseReference dealResp)
+            compLogInfo dealsLogger ("Working order creation submitted: " <> dealResponseReference dealResp)
             return $ Right dealResp
           Nothing -> do
-            dealsLogError "Failed to parse working order response"
+            compLogError dealsLogger "Failed to parse working order response"
             return $ Left $ brokerError "Failed to parse working order response"
         else do
-          dealsLogError ("Create working order failed with status: " <> T.pack (show status))
+          compLogError dealsLogger ("Create working order failed with status: " <> T.pack (show status))
           return $ Left $ brokerError ("Create working order failed with status: " <> T.pack (show status))
 
 -- Amend working order
 amendWorkingOrder :: BrokerConfig -> IGSession -> Text -> IGWorkingOrderRequest -> IO (Result IGDealResponse)
 amendWorkingOrder config session dealId orderReq = do
-  dealsLogInfo ("Amending working order: " <> dealId)
+  compLogInfo dealsLogger ("Amending working order: " <> dealId)
 
   result <- try $ do
     request <- createJsonRequest config session "PUT" ("/working-orders/otc/" <> T.unpack dealId) "2" (JSON.toJSON orderReq)
@@ -358,7 +347,7 @@ amendWorkingOrder config session dealId orderReq = do
 
   case result of
     Left (ex :: SomeException) -> do
-      dealsLogError ("Failed to amend working order: " <> T.pack (show ex))
+      compLogError dealsLogger ("Failed to amend working order: " <> T.pack (show ex))
       return $ Left $ brokerError ("Failed to amend working order: " <> T.pack (show ex))
 
     Right response -> do
@@ -368,19 +357,19 @@ amendWorkingOrder config session dealId orderReq = do
       if statusCode status == 200
         then case JSON.decode body :: Maybe IGDealResponse of
           Just dealResp -> do
-            dealsLogInfo ("Working order amendment submitted: " <> dealResponseReference dealResp)
+            compLogInfo dealsLogger ("Working order amendment submitted: " <> dealResponseReference dealResp)
             return $ Right dealResp
           Nothing -> do
-            dealsLogError "Failed to parse working order amendment response"
+            compLogError dealsLogger "Failed to parse working order amendment response"
             return $ Left $ brokerError "Failed to parse working order amendment response"
         else do
-          dealsLogError ("Amend working order failed with status: " <> T.pack (show status))
+          compLogError dealsLogger ("Amend working order failed with status: " <> T.pack (show status))
           return $ Left $ brokerError ("Amend working order failed with status: " <> T.pack (show status))
 
 -- Delete working order
 deleteWorkingOrder :: BrokerConfig -> IGSession -> Text -> IO (Result IGDealResponse)
 deleteWorkingOrder config session dealId = do
-  dealsLogInfo ("Deleting working order: " <> dealId)
+  compLogInfo dealsLogger ("Deleting working order: " <> dealId)
 
   result <- try $ do
     request <- createVersionedRequest config session ("/working-orders/otc/" <> T.unpack dealId) "1"
@@ -390,7 +379,7 @@ deleteWorkingOrder config session dealId = do
 
   case result of
     Left (ex :: SomeException) -> do
-      dealsLogError ("Failed to delete working order: " <> T.pack (show ex))
+      compLogError dealsLogger ("Failed to delete working order: " <> T.pack (show ex))
       return $ Left $ brokerError ("Failed to delete working order: " <> T.pack (show ex))
 
     Right response -> do
@@ -400,13 +389,13 @@ deleteWorkingOrder config session dealId = do
       if statusCode status == 200
         then case JSON.decode body :: Maybe IGDealResponse of
           Just dealResp -> do
-            dealsLogInfo ("Working order deletion submitted: " <> dealResponseReference dealResp)
+            compLogInfo dealsLogger ("Working order deletion submitted: " <> dealResponseReference dealResp)
             return $ Right dealResp
           Nothing -> do
-            dealsLogError "Failed to parse working order deletion response"
+            compLogError dealsLogger "Failed to parse working order deletion response"
             return $ Left $ brokerError "Failed to parse working order deletion response"
         else do
-          dealsLogError ("Delete working order failed with status: " <> T.pack (show status))
+          compLogError dealsLogger ("Delete working order failed with status: " <> T.pack (show status))
           return $ Left $ brokerError ("Delete working order failed with status: " <> T.pack (show status))
 
 -- Deal Confirmation Functions
@@ -414,7 +403,7 @@ deleteWorkingOrder config session dealId = do
 -- Get deal confirmation
 getDealConfirmation :: BrokerConfig -> IGSession -> Text -> IO (Result IGDealConfirmation)
 getDealConfirmation config session dealReference = do
-  dealsLogInfo ("Fetching deal confirmation: " <> dealReference)
+  compLogInfo dealsLogger ("Fetching deal confirmation: " <> dealReference)
 
   result <- try $ do
     request <- createVersionedRequest config session ("/confirms/" <> T.unpack dealReference) "1"
@@ -423,39 +412,39 @@ getDealConfirmation config session dealReference = do
 
   case result of
     Left (ex :: SomeException) -> do
-      dealsLogError ("Failed to fetch deal confirmation: " <> T.pack (show ex))
+      compLogError dealsLogger ("Failed to fetch deal confirmation: " <> T.pack (show ex))
       return $ Left $ brokerError ("Failed to fetch deal confirmation: " <> T.pack (show ex))
 
     Right response -> do
       let status = responseStatus response
           body = responseBody response
 
-      dealsLogInfo ("Deal confirmation response status: " <> T.pack (show status))
-      dealsLogInfo ("Deal confirmation response body: " <> T.pack (show (LBS.take 1000 body)))
+      compLogDebug dealsLogger ("Deal confirmation response status: " <> T.pack (show status))
+      compLogDebug dealsLogger ("Deal confirmation response body: " <> T.pack (show (LBS.take 1000 body)))
 
       if statusCode status == 200
         then case JSON.decode body :: Maybe IGDealConfirmation of
           Just confirmation -> do
-            dealsLogInfo ("Retrieved deal confirmation: " <> dealReference)
+            compLogInfo dealsLogger ("Retrieved deal confirmation: " <> dealReference)
             -- Always log the deal status and reason for troubleshooting - using INFO level
             case confirmationDealStatus confirmation of
               Just REJECTED -> do
                 let reason = maybe "No reason provided" id (confirmationReason confirmation)
-                dealsLogError ("Deal REJECTED - Reason: " <> reason)
-              Just dealStatus -> dealsLogInfo ("Deal status: " <> T.pack (show dealStatus))
-              Nothing -> dealsLogInfo "Deal status not provided in confirmation"
+                compLogInfo dealsLogger ("Deal REJECTED - Reason: " <> reason)
+              Just dealStatus -> compLogInfo dealsLogger ("Deal status: " <> T.pack (show dealStatus))
+              Nothing -> compLogInfo dealsLogger "Deal status not provided in confirmation"
 
             -- Also log the reason field regardless of status
             case confirmationReason confirmation of
-              Just reason -> dealsLogInfo ("Deal reason: " <> reason)
-              Nothing -> dealsLogInfo "No reason provided in confirmation"
+              Just reason -> compLogInfo dealsLogger ("Deal reason: " <> reason)
+              Nothing -> compLogInfo dealsLogger "No reason provided in confirmation"
 
             return $ Right confirmation
           Nothing -> do
-            dealsLogError "Failed to parse deal confirmation response"
-            dealsLogInfo ("Raw response body: " <> T.pack (show (LBS.take 1000 body)))
+            compLogError dealsLogger "Failed to parse deal confirmation response"
+            compLogDebug dealsLogger ("Raw response body: " <> T.pack (show (LBS.take 1000 body)))
             return $ Left $ brokerError "Failed to parse deal confirmation response"
         else do
-          dealsLogError ("Get deal confirmation failed with status: " <> T.pack (show status))
-          dealsLogInfo ("Response body: " <> T.pack (show (LBS.take 1000 body)))
+          compLogError dealsLogger ("Get deal confirmation failed with status: " <> T.pack (show status))
+          compLogDebug dealsLogger ("Response body: " <> T.pack (show (LBS.take 1000 body)))
           return $ Left $ brokerError ("Get deal confirmation failed with status: " <> T.pack (show status))

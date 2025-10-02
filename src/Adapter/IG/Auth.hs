@@ -22,87 +22,76 @@ import Adapter.IG.Types
 import Domain.Types
 import Util.Config (BrokerConfig(..))
 import Util.Error (Result, brokerError)
-import Util.Logger (logInfo, logError, logWarn, logDebug, ComponentName(..), runFileLoggerWithComponent)
+import Util.Logger (ComponentLogger, makeComponentLogger)
 
--- Adapter-scoped logging helpers
-brokerLogInfo :: Text -> IO ()
-brokerLogInfo msg = runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo msg
-
-brokerLogWarn :: Text -> IO ()
-brokerLogWarn msg = runFileLoggerWithComponent (ComponentName "BROKER") $ logWarn msg
-
-brokerLogError :: Text -> IO ()
-brokerLogError msg = runFileLoggerWithComponent (ComponentName "BROKER") $ logError msg
-
-brokerLogDebug :: Text -> IO ()
-brokerLogDebug msg = runFileLoggerWithComponent (ComponentName "BROKER") $ logDebug msg
+-- Component logger for this module
+authLogger :: ComponentLogger
+authLogger = makeComponentLogger "IG_AUTH"
 
 -- IG REST API functions
 loginToIG :: BrokerConfig -> Text -> Text -> IO (Result IGSession)
 loginToIG config username password = do
-  brokerLogInfo "Authenticating with IG REST API"
+  compLogInfo authLogger ("Attempting login to IG for user: " <> username)
 
   case bcBaseUrl config of
-    Nothing -> return $ Left $ brokerError "No base URL configured for IG"
+    Nothing -> do
+      compLogError authLogger "No base URL configured for IG"
+      return $ Left $ brokerError "No base URL configured for IG"
     Just baseUrl -> do
-      let loginUrl = T.unpack baseUrl <> "/session"
-          loginReq = IGLoginRequest username password False
-
-      request <- parseRequest $ "POST " <> loginUrl
-      let requestWithHeaders = request
-            { requestHeaders =
-                [ ("Content-Type", "application/json")
-                , ("Accept", "application/json")
-                , ("Version", "2")
-                , ("X-IG-API-KEY", TE.encodeUtf8 $ maybe "" id (bcApiKey config))
-                ]
-            , requestBody = RequestBodyLBS $ JSON.encode loginReq
-            }
-
-      result <- try $ httpLbs requestWithHeaders =<< newManager tlsManagerSettings
+      result <- try $ doLogin config baseUrl username password
       case result of
         Left (ex :: SomeException) -> do
-          brokerLogError ("HTTP request failed: " <> T.pack (show ex))
-          return $ Left $ brokerError ("HTTP request failed: " <> T.pack (show ex))
+          compLogError authLogger ("Login failed with exception: " <> T.pack (show ex))
+          return $ Left $ brokerError ("Login failed: " <> T.pack (show ex))
+        Right loginResult -> return loginResult
 
-        Right response -> do
-          let status = responseStatus response
-              headers = responseHeaders response
-              body = responseBody response
+doLogin :: BrokerConfig -> Text -> Text -> Text -> IO (Result IGSession)
+doLogin config baseUrl username password = do
+  compLogDebug authLogger "Creating login request"
 
-          brokerLogInfo ("IG login response status: " <> T.pack (show status))
+  -- Create request body
+  let loginRequest = LoginRequest
+        { identifier = username
+        , password = password
+        , encryptedPassword = False
+        }
 
-          if statusCode status == 200
-            then do
-              let cstHeader = lookup "CST" headers
-                  xSecTokenHeader = lookup "X-SECURITY-TOKEN" headers
-                  mParsedBody = JSON.decode body :: Maybe IGLoginResponse
-              case (cstHeader, xSecTokenHeader) of
-                (Just cst, Just xSecToken) -> do
-                  now <- getCurrentTime
-                  let expiresAt = addUTCTime 21600 now
-                      session = IGSession
-                        { igSessionToken = TE.decodeUtf8 cst
-                        , igCST = TE.decodeUtf8 cst
-                        , igXSecurityToken = TE.decodeUtf8 xSecToken
-                        , igExpiresAt = expiresAt
-                        , igLightstreamerEndpoint = responseLightstreamerEndpoint =<< mParsedBody
-                        }
-                  brokerLogInfo "IG session tokens extracted successfully"
-                  return $ Right session
-                _ -> do
-                  brokerLogError "Missing session tokens in IG response headers"
-                  return $ Left $ brokerError "Missing session tokens in IG response"
-            else do
-              brokerLogError ("IG login failed with status: " <> T.pack (show status))
-              brokerLogDebugBody body
-              return $ Left $ brokerError ("IG login failed with status: " <> T.pack (show status))
-  where
-    brokerLogDebugBody b = runFileLoggerWithComponent (ComponentName "BROKER") $ logDebug ("Response body: " <> T.pack (show (LBS.take 500 b)))
+  -- Create HTTP request
+  let url = T.unpack baseUrl <> "/session"
+  request <- parseRequest $ "POST " <> url
+  let requestWithHeaders = request
+        { requestHeaders =
+            [ ("Accept", "application/json; charset=UTF-8")
+            , ("Content-Type", "application/json; charset=UTF-8")
+            , ("X-IG-API-KEY", TE.encodeUtf8 $ maybe "" id (bcApiKey config))
+            , ("Version", "2")
+            ]
+        , requestBody = RequestBodyLBS $ JSON.encode loginRequest
+        }
+
+  compLogDebug authLogger ("Sending login request to: " <> T.pack url)
+
+  -- Send request
+  response <- httpLbs requestWithHeaders =<< newManager tlsManagerSettings
+  let status = responseStatus response
+      body = responseBody response
+      headers = responseHeaders response
+
+  compLogDebug authLogger ("Login response status: " <> T.pack (show status))
+
+  -- Debug response body (first 500 chars)
+  let brokerLogDebugBody b = compLogDebug authLogger ("Response body: " <> T.pack (show (LBS.take 500 b)))
+  brokerLogDebugBody body
+
+  if statusCode status == 200
+    then parseLoginResponse headers body
+    else do
+      compLogError authLogger ("Login failed with status: " <> T.pack (show status))
+      return $ Left $ brokerError ("Login failed with status: " <> T.pack (show status))
 
 logoutFromIG :: BrokerConfig -> IGSession -> IO (Result ())
 logoutFromIG config session = do
-  brokerLogInfo "Logging out from IG"
+  compLogInfo authLogger "Logging out from IG"
 
   case bcBaseUrl config of
     Nothing -> return $ Right ()  -- Nothing to logout from
@@ -123,9 +112,9 @@ logoutFromIG config session = do
       result <- try $ httpLbs requestWithHeaders =<< newManager tlsManagerSettings
       case result of
         Left (ex :: SomeException) -> do
-          brokerLogWarn ("Logout request failed: " <> T.pack (show ex))
+          compLogWarn authLogger ("Logout request failed: " <> T.pack (show ex))
           return $ Right ()
         Right response -> do
           let status = responseStatus response
-          brokerLogInfo ("IG logout response status: " <> T.pack (show status))
+          compLogInfo authLogger ("IG logout response status: " <> T.pack (show status))
           return $ Right ()

@@ -25,31 +25,35 @@ import Adapter.IG.Types (IGSession(..))
 import Adapter.IG.Auth (loginToIG, logoutFromIG)
 import Util.Config (BrokerConfig)
 import Util.Error (Result, TempehError)
-import Util.Logger (ComponentName(..), runFileLoggerWithComponent, logInfo, logWarn, logError)
+import Util.Logger (ComponentLogger, makeComponentLogger)
 
 -- | Session manager monad for handling IG session lifecycle
 newtype SessionManager m a = SessionManager
   { runSessionManager :: ReaderT (TVar (Maybe IGSession)) m a }
   deriving (Functor, Applicative, Monad, MonadIO, MonadReader (TVar (Maybe IGSession)))
 
+-- Component logger for this module
+sessionLogger :: ComponentLogger
+sessionLogger = makeComponentLogger "IG_SESSION"
+
 -- Session management operations
 createSession :: MonadIO m => BrokerConfig -> Text -> Text -> SessionManager m (Result IGSession)
 createSession config username password = do
-  liftIO $ sessionLogInfo "Creating new IG session"
+  liftIO $ compLogInfo sessionLogger "Creating new IG session"
   result <- liftIO $ loginToIG config username password
   case result of
     Right session -> do
       sessionVar <- ask
       liftIO $ atomically $ writeTVar sessionVar (Just session)
-      liftIO $ sessionLogInfo "Session created successfully"
+      liftIO $ compLogInfo sessionLogger "Session created successfully"
       return $ Right session
     Left err -> do
-      liftIO $ sessionLogError ("Failed to create session: " <> T.pack (show err))
+      liftIO $ compLogError sessionLogger ("Failed to create session: " <> T.pack (show err))
       return $ Left err
 
 renewSession :: MonadIO m => BrokerConfig -> Text -> Text -> SessionManager m (Result IGSession)
 renewSession config username password = do
-  liftIO $ sessionLogInfo "Renewing IG session"
+  liftIO $ compLogInfo sessionLogger "Renewing IG session"
   -- Close existing session first
   _ <- closeSession config
   -- Create new session
@@ -64,7 +68,7 @@ closeSession config = do
     Just session -> do
       result <- liftIO $ logoutFromIG config session
       liftIO $ atomically $ writeTVar sessionVar Nothing
-      liftIO $ sessionLogInfo "Session closed"
+      liftIO $ compLogInfo sessionLogger "Session closed"
       return result
 
 validateSession :: MonadIO m => SessionManager m Bool
@@ -76,12 +80,3 @@ validateSession = do
     Nothing -> return False
     Just session -> return $ igExpiresAt session > now
 
--- Logging helpers
-sessionLogInfo :: Text -> IO ()
-sessionLogInfo msg = runFileLoggerWithComponent (ComponentName "IG_SESSION") $ logInfo msg
-
-sessionLogWarn :: Text -> IO ()
-sessionLogWarn msg = runFileLoggerWithComponent (ComponentName "IG_SESSION") $ logWarn msg
-
-sessionLogError :: Text -> IO ()
-sessionLogError msg = runFileLoggerWithComponent (ComponentName "IG_SESSION") $ logError msg

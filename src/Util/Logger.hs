@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE RankNTypes #-}
 module Util.Logger
   ( -- Core logging interface
     MonadLogger(..)
@@ -22,12 +23,22 @@ module Util.Logger
   , logWarn
   , logDebug
 
+  -- Component logger factory (NEW)
+  , ComponentLogger(..)
+  , makeComponentLogger
+
+  -- Component logging functions (ADDED)
+  , compLogInfo
+  , compLogWarn
+  , compLogError
+  , compLogDebug
+
   -- Implementation
   , runConsoleLogger
   , runFileLogger
   , runStructuredLogger
-  , generateLogFileName  -- New export for custom log file naming
-  , runFileLoggerWithComponent  -- Add this new export
+  , generateLogFileName
+  , runFileLoggerWithComponent
   ) where
 
 import Control.Monad.IO.Class (MonadIO, liftIO)
@@ -44,7 +55,7 @@ import qualified Data.Map.Strict as Map
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
 import System.IO (Handle, openFile, hClose, IOMode(..), hFlush)
-import Control.Exception (bracket)
+import Control.Exception (bracket) -- Added missing import
 import qualified Data.ByteString.Lazy as LBS
 
 -- Core types
@@ -218,3 +229,36 @@ runFileLoggerWithComponent :: ComponentName -> ReaderT LogContext IO a -> IO a
 runFileLoggerWithComponent comp action = do
   filePath <- generateLogFileName comp
   runFileLogger filePath action
+
+-- Component logger record for eliminating duplication (NEW)
+data ComponentLogger = ComponentLogger
+  { clInfo  :: Text -> IO ()
+  , clWarn  :: Text -> IO ()
+  , clError :: Text -> IO ()
+  , clDebug :: Text -> IO ()
+  }
+
+-- Factory function to create component-specific loggers (NEW)
+makeComponentLogger :: Text -> ComponentLogger
+makeComponentLogger componentName =
+  let comp = ComponentName componentName
+      logWithComp logFn msg = runFileLoggerWithComponent comp $ logFn msg
+  in ComponentLogger
+    { clInfo = logWithComp logInfo
+    , clWarn = logWithComp logWarn
+    , clError = logWithComp logError
+    , clDebug = logWithComp logDebug
+    }
+
+-- Standalone component logging functions for backward compatibility
+compLogInfo :: ComponentLogger -> Text -> IO ()
+compLogInfo (ComponentLogger info _ _ _) = info
+
+compLogWarn :: ComponentLogger -> Text -> IO ()
+compLogWarn (ComponentLogger _ warn _ _) = warn
+
+compLogError :: ComponentLogger -> Text -> IO ()
+compLogError (ComponentLogger _ _ err _) = err
+
+compLogDebug :: ComponentLogger -> Text -> IO ()
+compLogDebug (ComponentLogger _ _ _ debug) = debug

@@ -32,7 +32,7 @@ import Adapter.IG.Deals (createPosition, getDealConfirmation)
 import qualified Adapter.IG.Deals as Deals
 import Util.Config (BrokerConfig)
 import Util.Error (Result, brokerError)
-import Util.Logger (ComponentName(..), runFileLoggerWithComponent, logInfo, logWarn, logError, logDebug)
+import Util.Logger (ComponentLogger, makeComponentLogger)
 
 -- | Trading context for operations
 data TradingContext = TradingContext
@@ -54,23 +54,28 @@ newtype TradingManager m a = TradingManager
   { runTradingManager :: ReaderT TradingContext m a }
   deriving (Functor, Applicative, Monad, MonadIO, MonadReader TradingContext)
 
+-- Component logger for this module
+tradingLogger :: ComponentLogger
+tradingLogger = makeComponentLogger "IG_TRADING"
+
 -- Core trading operations
-executeMarketOrder :: MonadIO m => Instrument -> Side -> Double -> Maybe Text -> TradingManager m (Result Text)
-executeMarketOrder instrument side size dealRef = do
-  liftIO $ tradingLogInfo ("Executing market order: " <> T.pack (show side) <> " " <> T.pack (show size) <> " of " <> T.pack (show instrument))
+executeMarketOrder :: MonadIO m => Instrument -> Side -> Double -> TradingManager m (Result Text)
+executeMarketOrder instrument side size = do
+  liftIO $ compLogInfo tradingLogger ("Executing market order: " <> T.pack (show side) <> " " <> T.pack (show size) <> " of " <> T.pack (show instrument))
 
-  context <- ask
-  let config = tcBrokerConfig context
-      session = tcSession context
-
-  -- Validate order
+  -- Validate order first
   validationResult <- validateOrderRequest instrument side size
   case validationResult of
     Left validationError -> do
-      liftIO $ tradingLogError ("Order validation failed: " <> T.pack (show validationError))
+      liftIO $ compLogError tradingLogger ("Order validation failed: " <> T.pack (show validationError))
       return $ Left $ brokerError ("Order validation failed: " <> T.pack (show validationError))
 
     Right () -> do
+      -- Get trading context and execute order
+      ctx <- ask
+      let config = tcBrokerConfig ctx
+          session = tcSession ctx
+
       -- Create deal request
       let dealRequest = IGDealRequest
             { dealEpic = instrumentToEpic instrument
@@ -90,7 +95,7 @@ executeMarketOrder instrument side size dealRef = do
             , dealLimitLevel = Nothing
             , dealLimitDistance = Nothing
             , dealTimeInForce = Nothing
-            , dealReference = dealRef
+            , dealReference = Nothing
             }
 
       -- Execute order
@@ -98,69 +103,69 @@ executeMarketOrder instrument side size dealRef = do
       case result of
         Right dealResponse -> do
           let dealRefResult = dealResponseReference dealResponse
-          liftIO $ tradingLogInfo ("Order executed successfully: " <> dealRefResult)
+          liftIO $ compLogInfo tradingLogger ("Order executed successfully: " <> dealRefResult)
 
           -- Wait for confirmation
           confirmResult <- liftIO $ getDealConfirmation config session dealRefResult
           case confirmResult of
             Right confirmation -> do
-              liftIO $ tradingLogInfo ("Deal confirmed: " <> dealRefResult)
+              liftIO $ compLogInfo tradingLogger ("Deal confirmed: " <> dealRefResult)
               return $ Right dealRefResult
             Left confirmErr -> do
-              liftIO $ tradingLogWarn ("Deal confirmation failed: " <> T.pack (show confirmErr))
+              liftIO $ compLogWarn tradingLogger ("Deal confirmation failed: " <> T.pack (show confirmErr))
               return $ Right dealRefResult -- Still return success as order was placed
 
         Left err -> do
-          liftIO $ tradingLogError ("Order execution failed: " <> T.pack (show err))
+          liftIO $ compLogError tradingLogger ("Order execution failed: " <> T.pack (show err))
           return $ Left err
 
 closePosition :: MonadIO m => Text -> TradingManager m (Result Text)
 closePosition dealId = do
-  liftIO $ tradingLogInfo ("Closing position: " <> dealId)
-  context <- ask
-  let config = tcBrokerConfig context
-      session = tcSession context
+  liftIO $ compLogInfo tradingLogger ("Closing position: " <> dealId)
+  ctx <- ask
+  let config = tcBrokerConfig ctx
+      session = tcSession ctx
 
   -- Implementation would call IG close position API
   -- For now, return success
-  liftIO $ tradingLogInfo ("Position closed: " <> dealId)
+  liftIO $ compLogInfo tradingLogger ("Position closed: " <> dealId)
   return $ Right dealId
 
 getPositions :: MonadIO m => TradingManager m (Result [IGPosition])
 getPositions = do
-  liftIO $ tradingLogInfo "Getting all positions"
-  context <- ask
-  let config = tcBrokerConfig context
-      session = tcSession context
+  liftIO $ compLogInfo tradingLogger "Getting all positions"
+  ctx <- ask
+  let config = tcBrokerConfig ctx
+      session = tcSession ctx
 
   result <- liftIO $ Deals.getPositions config session
   case result of
     Right positions -> do
-      liftIO $ tradingLogInfo ("Retrieved " <> T.pack (show (length positions)) <> " positions")
+      liftIO $ compLogInfo tradingLogger ("Retrieved " <> T.pack (show (length positions)) <> " positions")
       return $ Right positions
     Left err -> do
-      liftIO $ tradingLogError ("Failed to get positions: " <> T.pack (show err))
+      liftIO $ compLogError tradingLogger ("Failed to get positions: " <> T.pack (show err))
       return $ Left err
 
 getPositionById :: MonadIO m => Text -> TradingManager m (Result IGPosition)
 getPositionById positionId = do
-  liftIO $ tradingLogInfo ("Getting position: " <> positionId)
-  context <- ask
-  let config = tcBrokerConfig context
-      session = tcSession context
+  liftIO $ compLogInfo tradingLogger ("Getting position: " <> positionId)
+  ctx <- ask
+  let config = tcBrokerConfig ctx
+      session = tcSession ctx
 
   result <- liftIO $ Deals.getPosition config session positionId
   case result of
     Right position -> do
-      liftIO $ tradingLogInfo ("Retrieved position: " <> positionId)
+      liftIO $ compLogInfo tradingLogger ("Retrieved position: " <> positionId)
       return $ Right position
     Left err -> do
-      liftIO $ tradingLogError ("Failed to get position: " <> T.pack (show err))
+      liftIO $ compLogError tradingLogger ("Failed to get position: " <> T.pack (show err))
       return $ Left err
 
 validateOrderRequest :: MonadIO m => Instrument -> Side -> Double -> TradingManager m (Result ())
 validateOrderRequest instrument side size = do
-  liftIO $ tradingLogDebug ("Validating order: " <> T.pack (show instrument) <> " " <> T.pack (show side) <> " " <> T.pack (show size))
+  liftIO $ compLogDebug tradingLogger ("Validating order: " <> T.pack (show instrument) <> " " <> T.pack (show side) <> " " <> T.pack (show size))
 
   -- Basic validation rules
   if size <= 0
@@ -192,15 +197,3 @@ instrumentToIGEpic = instrumentToEpic
 sideToIGDirection :: Side -> Direction
 sideToIGDirection = sideToDirection
 
--- Logging helpers
-tradingLogInfo :: Text -> IO ()
-tradingLogInfo msg = runFileLoggerWithComponent (ComponentName "IG_TRADING") $ logInfo msg
-
-tradingLogWarn :: Text -> IO ()
-tradingLogWarn msg = runFileLoggerWithComponent (ComponentName "IG_TRADING") $ logWarn msg
-
-tradingLogError :: Text -> IO ()
-tradingLogError msg = runFileLoggerWithComponent (ComponentName "IG_TRADING") $ logError msg
-
-tradingLogDebug :: Text -> IO ()
-tradingLogDebug msg = runFileLoggerWithComponent (ComponentName "IG_TRADING") $ logDebug msg
