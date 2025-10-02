@@ -49,7 +49,7 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (isJust, fromMaybe)
 import System.IO.Unsafe (unsafePerformIO)
-import Util.Logger (ComponentLogger, makeComponentLogger, compLogInfo, compLogError, compLogDebug, compLogWarn)
+import Util.Logger (ComponentName(..), runFileLoggerWithComponent, logInfo, logWarn, logError, logDebug)
 
 -- Import our new modular architecture (Phase 4: Cleaned up from legacy patterns)
 import qualified Adapter.IG.Session as Session
@@ -63,9 +63,6 @@ import qualified Adapter.IG.Polling as IGPolling
 import qualified Adapter.IG.Streaming as IGStreaming
 import qualified Adapter.IG.Auth as IGAuth
 
--- Component logger for this module
-brokerLogger :: ComponentLogger
-brokerLogger = makeComponentLogger "BROKER"
 
 -- | Broker data provider context - simplified for Phase 2+3 implementation
 data BrokerContext = BrokerContext
@@ -112,7 +109,7 @@ instance (MonadIO m) => LiveDataProvider (BrokerDataProviderM m) where
     ctx <- ask
     case bdpBrokerType ctx of
       IG -> do
-        liftIO $ compLogInfo brokerLogger "Connecting to broker (Phase 2+3 modular integration)"
+        liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo "Connecting to broker (Phase 2+3 modular integration)"
 
         -- Get IG credentials from config safely
         let config = bcAppConfig ctx
@@ -126,27 +123,27 @@ instance (MonadIO m) => LiveDataProvider (BrokerDataProviderM m) where
             result <- connectToIGModular connId brokerConfig now config
             case result of
               Left err -> do
-                liftIO $ compLogWarn brokerLogger "IG connection failed, using demo mode"
+                liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logWarn "IG connection failed, using demo mode"
                 return $ Right $ ConnectionId "DEMO"
               Right actualConnId -> return $ Right actualConnId
           _ -> do
-            liftIO $ compLogWarn brokerLogger "Missing IG credentials, using demo mode"
+            liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logWarn "Missing IG credentials, using demo mode"
             return $ Right $ ConnectionId "DEMO"
       _ -> do
         -- Handle other broker types (Demo, OANDA, etc.) by creating a proper demo connection
-        liftIO $ compLogInfo brokerLogger "Using demo mode for non-IG broker type"
+        liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo "Using demo mode for non-IG broker type"
         connId <- liftIO $ ConnectionId <$> genShortConnId
         now <- liftIO getCurrentTime
         let config = bcAppConfig ctx
         result <- connectDemoModular connId now config
         case result of
           Left err -> do
-            liftIO $ compLogWarn brokerLogger "Demo connection failed, using fallback"
+            liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logWarn "Demo connection failed, using fallback"
             return $ Right $ ConnectionId "DEMO"
           Right actualConnId -> return $ Right actualConnId
 
   disconnect connId = do
-    liftIO $ compLogInfo brokerLogger ("Disconnecting from broker: " <> T.pack (show connId))
+    liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo ("Disconnecting from broker: " <> T.pack (show connId))
 
     ctx <- ask
     let connectionsVar = bcConnections ctx
@@ -171,7 +168,7 @@ instance (MonadIO m) => LiveDataProvider (BrokerDataProviderM m) where
             let config = bcAppConfig ctx
                 brokerConfig = acBroker config
             case (bcUsername brokerConfig, bcPassword brokerConfig) of
-              (Just _, Just _) -> liftIO $ compLogInfo brokerLogger "Successfully logged out from IG"
+              (Just _, Just _) -> liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo "Successfully logged out from IG"
               _ -> return ()
           _ -> return ()
         return $ Right ()
@@ -186,7 +183,7 @@ instance (MonadIO m) => LiveDataProvider (BrokerDataProviderM m) where
         Just conn -> Right <$> readTVar (bcStatus conn)
 
   subscribeToInstrument connId instrument = do
-    liftIO $ compLogInfo brokerLogger ("Subscribing to instrument: " <> T.pack (show instrument) <> " on connection: " <> T.pack (show connId))
+    liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo ("Subscribing to instrument: " <> T.pack (show instrument) <> " on connection: " <> T.pack (show connId))
 
     ctx <- ask
     let connectionsVar = bcConnections ctx
@@ -224,7 +221,7 @@ instance (MonadIO m) => LiveDataProvider (BrokerDataProviderM m) where
     case result of
       Left err -> return $ Left err
       Right _ -> do
-        liftIO $ compLogInfo brokerLogger ("Successfully subscribed to " <> T.pack (show instrument))
+        liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo ("Successfully subscribed to " <> T.pack (show instrument))
 
         -- Start market data feed for the subscription
         case bdpBrokerType ctx of
@@ -236,13 +233,13 @@ instance (MonadIO m) => LiveDataProvider (BrokerDataProviderM m) where
 
             case connResult of
               Just conn -> startIGMarketDataSubscription conn instrument
-              Nothing -> liftIO $ compLogError brokerLogger ("Connection not found during market data setup: " <> T.pack (show connId))
-          _ -> liftIO $ compLogInfo brokerLogger ("Demo subscription created for " <> T.pack (show instrument))
+              Nothing -> liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logError ("Connection not found during market data setup: " <> T.pack (show connId))
+          _ -> liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo ("Demo subscription created for " <> T.pack (show instrument))
 
         return $ Right ()
 
   unsubscribeFromInstrument connId instrument = do
-    liftIO $ compLogInfo brokerLogger ("Unsubscribing from instrument: " <> T.pack (show instrument))
+    liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo ("Unsubscribing from instrument: " <> T.pack (show instrument))
 
     ctx <- ask
     let connectionsVar = bcConnections ctx
@@ -264,7 +261,7 @@ instance (MonadIO m) => LiveDataProvider (BrokerDataProviderM m) where
     case result of
       Left err -> return $ Left err
       Right _ -> do
-        liftIO $ compLogInfo brokerLogger ("Successfully unsubscribed from " <> T.pack (show instrument))
+        liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo ("Successfully unsubscribed from " <> T.pack (show instrument))
         return $ Right ()
 
   getTickStream connId instrument = do
@@ -322,10 +319,50 @@ instance (MonadIO m) => LiveDataProvider (BrokerDataProviderM m) where
           , ldqQualityScore = score
           }
 
+-- Helper to run broker data provider
+runBrokerDataProviderIO :: BrokerDataProviderM IO a -> IO a
+runBrokerDataProviderIO action = do
+  -- Load configuration
+  configResult <- loadAppConfig
+  case configResult of
+    Left err -> error $ "Failed to load config: " <> T.unpack err
+    Right appConfig -> do
+      connectionsVar <- newTVarIO Map.empty
+      let context = BrokerContext
+            { bcAppConfig = appConfig
+            , bcConnections = connectionsVar
+            }
+      runReaderT (runBrokerDataProvider action) context
+
+-- Helper functions for IG API integration
+sideToIGDirection :: Domain.Types.Side -> Direction
+sideToIGDirection Domain.Types.Buy = BUY
+sideToIGDirection Domain.Types.Sell = SELL
+
+instrumentToEpic :: Instrument -> Text
+instrumentToEpic instrument =
+  case IGStreaming.instrumentToIGEpic instrument of
+    Just epic -> epic
+    Nothing -> error $ "Unsupported instrument: " <> show instrument
+
+-- Deal reference generation (for tests)
+mkDealReference :: Text -> Text -> Text -> Text
+mkDealReference prefix connInfo timestamp =
+  let -- Limit each component and remove non-alphanumeric characters
+      cleanPrefix = T.take 6 $ T.filter isAlphaNum prefix
+      cleanConnInfo = T.take 8 $ T.filter isAlphaNum connInfo
+      cleanTimestamp = T.take 12 $ T.filter isAlphaNum timestamp
+      -- Concatenate without separators to ensure alphanumeric
+      combined = cleanPrefix <> cleanConnInfo <> cleanTimestamp
+      -- Ensure final result is <= 30 characters
+      final = T.take 30 combined
+      -- If the result is empty after filtering, provide a default alphanumeric fallback
+  in if T.null final then "TEMPEH001" else final
+
 -- IG-specific connection logic with enhanced modular integration
 connectToIGModular :: MonadIO m => ConnectionId -> BrokerConfig -> UTCTime -> AppConfig -> BrokerDataProviderM m (Result ConnectionId)
 connectToIGModular connId config now appConfig = do
-  liftIO $ compLogInfo brokerLogger "Connecting to IG with enhanced modular architecture"
+  liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo "Connecting to IG with enhanced modular architecture"
 
   case (bcUsername config, bcPassword config, bcApiKey config) of
     (Just username, Just password, Just _apiKey) -> do
@@ -333,10 +370,10 @@ connectToIGModular connId config now appConfig = do
       loginResult <- liftIO $ IGAuth.loginToIG config username password
       case loginResult of
         Left err -> do
-          liftIO $ compLogError brokerLogger ("IG login failed: " <> T.pack (show err))
+          liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logError ("IG login failed: " <> T.pack (show err))
           return $ Left err
         Right session -> do
-          liftIO $ compLogInfo brokerLogger "Successfully authenticated with IG using legacy auth (migration in progress)"
+          liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo "Successfully authenticated with IG using legacy auth (migration in progress)"
 
           -- Create connection with enhanced modular structure
           statusVar <- liftIO $ newTVarIO $ Connected now
@@ -371,13 +408,13 @@ connectToIGModular connId config now appConfig = do
 
           return $ Right connId
     _ -> do
-      liftIO $ compLogWarn brokerLogger "Missing IG credentials, falling back to demo mode"
+      liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logWarn "Missing IG credentials, falling back to demo mode"
       connectDemoModular connId now appConfig
 
 -- Demo connection (fallback)
 connectDemoModular :: MonadIO m => ConnectionId -> UTCTime -> AppConfig -> BrokerDataProviderM m (Result ConnectionId)
 connectDemoModular connId now appConfig = do
-  liftIO $ compLogInfo brokerLogger "Creating demo connection"
+  liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo "Creating demo connection"
 
   statusVar <- liftIO $ newTVarIO $ Connected now
   heartbeatVar <- liftIO $ newTVarIO now
@@ -425,34 +462,34 @@ connectDemoModular connId now appConfig = do
 startIGMarketDataSubscription :: MonadIO m => BrokerConnection -> Instrument -> BrokerDataProviderM m ()
 startIGMarketDataSubscription conn instrument = do
   let streamingMode = bcStreamingMode conn
-  liftIO $ compLogInfo brokerLogger ("Starting IG market data subscription for " <> T.pack (show instrument) <> " using " <> T.pack (show streamingMode))
+  liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo ("Starting IG market data subscription for " <> T.pack (show instrument) <> " using " <> T.pack (show streamingMode))
 
   maybeSession <- liftIO $ readTVarIO (bcIGSession conn)
   case maybeSession of
     Nothing -> do
-      liftIO $ compLogInfo brokerLogger "No IG session available for market data (running in demo/polling mode)"
+      liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo "No IG session available for market data (running in demo/polling mode)"
       startRESTPolling conn instrument
 
     Just session ->
       case (bcStreamingMode conn, igLightstreamerEndpoint session) of
         (WebSocketStreaming, Just _endpoint) -> do
-          liftIO $ compLogInfo brokerLogger "Starting Lightstreamer WebSocket streaming"
+          liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo "Starting Lightstreamer WebSocket streaming"
           startWebSocketStreaming conn instrument session
 
         _ -> do
-          liftIO $ compLogInfo brokerLogger "No Lightstreamer endpoint or forced REST mode; using REST polling"
+          liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo "No Lightstreamer endpoint or forced REST mode; using REST polling"
           startRESTPolling conn instrument
 
 -- Start WebSocket streaming for an instrument
 startWebSocketStreaming :: MonadIO m => BrokerConnection -> Instrument -> IGSession -> BrokerDataProviderM m ()
 startWebSocketStreaming conn instrument session = do
-  liftIO $ compLogInfo brokerLogger ("Establishing WebSocket streaming for " <> T.pack (show instrument))
+  liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo ("Establishing WebSocket streaming for " <> T.pack (show instrument))
 
   -- Get the tick buffer for this instrument
   subs <- liftIO $ readTVarIO (bcSubscriptions conn)
   case Map.lookup instrument subs of
     Nothing -> do
-      liftIO $ compLogError brokerLogger ("No subscription state found for instrument: " <> T.pack (show instrument))
+      liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logError ("No subscription state found for instrument: " <> T.pack (show instrument))
 
     Just subscriptionState -> do
       -- Start WebSocket streaming in background
@@ -460,67 +497,41 @@ startWebSocketStreaming conn instrument session = do
         streamingResult <- IGStreaming.startLightstreamerConnection (bcConfig conn) session
         case streamingResult of
           Left err -> do
-            compLogError brokerLogger ("Failed to start Lightstreamer connection: " <> T.pack (show err))
-            compLogWarn brokerLogger "Falling back to REST polling"
+            runFileLoggerWithComponent (ComponentName "BROKER") $ logError ("Failed to start Lightstreamer connection: " <> T.pack (show err))
+            runFileLoggerWithComponent (ComponentName "BROKER") $ logWarn "Falling back to REST polling"
             IGPolling.igStreamingLoop conn instrument
 
           Right lsConnection -> do
-            compLogInfo brokerLogger ("Lightstreamer connection established for " <> T.pack (show instrument))
+            runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo ("Lightstreamer connection established for " <> T.pack (show instrument))
 
             -- Subscribe to price updates
             subResult <- IGStreaming.subscribeToPriceUpdates lsConnection instrument (ssTickBuffer subscriptionState)
             case subResult of
               Left err -> do
-                compLogError brokerLogger ("Failed to subscribe to price updates: " <> T.pack (show err))
-                compLogWarn brokerLogger "Falling back to REST polling"
+                runFileLoggerWithComponent (ComponentName "BROKER") $ logError ("Failed to subscribe to price updates: " <> T.pack (show err))
+                runFileLoggerWithComponent (ComponentName "BROKER") $ logWarn "Falling back to REST polling"
                 IGStreaming.closeLightstreamerConnection lsConnection
                 IGPolling.igStreamingLoop conn instrument
 
               Right _subscription -> do
-                compLogInfo brokerLogger ("Successfully subscribed to WebSocket streaming for " <> T.pack (show instrument))
+                runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo ("Successfully subscribed to WebSocket streaming for " <> T.pack (show instrument))
 
-      liftIO $ compLogInfo brokerLogger ("Started WebSocket streaming setup for " <> T.pack (show instrument))
+      liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo ("Started WebSocket streaming setup for " <> T.pack (show instrument))
 
 -- Start REST polling for an instrument (fallback method)
 startRESTPolling :: MonadIO m => BrokerConnection -> Instrument -> BrokerDataProviderM m ()
 startRESTPolling conn instrument = do
-  liftIO $ compLogInfo brokerLogger ("Starting REST API polling for " <> T.pack (show instrument))
+  liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo ("Starting REST API polling for " <> T.pack (show instrument))
   -- Start background polling loop with delay
   _ <- liftIO $ async $ do
     threadDelay 200_000  -- Initial delay so flush is empty
     IGPolling.igStreamingLoop conn instrument
-  liftIO $ compLogInfo brokerLogger ("Started REST polling for " <> T.pack (show instrument))
-
--- Helper to run broker data provider
-runBrokerDataProviderIO :: BrokerDataProviderM IO a -> IO a
-runBrokerDataProviderIO action = do
-  -- Load configuration
-  configResult <- loadAppConfig
-  case configResult of
-    Left err -> error $ "Failed to load config: " <> T.unpack err
-    Right appConfig -> do
-      connectionsVar <- newTVarIO Map.empty
-      let context = BrokerContext
-            { bcAppConfig = appConfig
-            , bcConnections = connectionsVar
-            }
-      runReaderT (runBrokerDataProvider action) context
-
--- Helper functions for IG API integration
-sideToIGDirection :: Domain.Types.Side -> Direction
-sideToIGDirection Domain.Types.Buy = BUY
-sideToIGDirection Domain.Types.Sell = SELL
-
-instrumentToEpic :: Instrument -> Text
-instrumentToEpic instrument =
-  case IGStreaming.instrumentToIGEpic instrument of
-    Just epic -> epic
-    Nothing -> error $ "Unsupported instrument: " <> show instrument
+  liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo ("Started REST polling for " <> T.pack (show instrument))
 
 -- Trading execution functions with enhanced error handling
 executeEnterSignal :: (MonadIO m) => ConnectionId -> Instrument -> Domain.Types.Side -> Double -> BrokerDataProviderM m (Result Text)
 executeEnterSignal connId instrument side positionSize = do
-  liftIO $ compLogInfo brokerLogger ("Executing ENTER signal (modular): " <> T.pack (show side) <> " " <> T.pack (show positionSize) <> " of " <> T.pack (show instrument))
+  liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo ("Executing ENTER signal (modular): " <> T.pack (show side) <> " " <> T.pack (show positionSize) <> " of " <> T.pack (show instrument))
 
   context <- ask
   let connectionsVar = bcConnections context
@@ -530,14 +541,14 @@ executeEnterSignal connId instrument side positionSize = do
 
   case maybeConn of
     Nothing -> do
-      liftIO $ compLogError brokerLogger ("Connection not found: " <> T.pack (show connId))
+      liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logError ("Connection not found: " <> T.pack (show connId))
       return $ Left $ brokerError ("Connection not found: " <> T.pack (show connId))
 
     Just conn -> do
       maybeSession <- liftIO $ readTVarIO (bcIGSession conn)
       case maybeSession of
         Nothing -> do
-          liftIO $ compLogWarn brokerLogger "No IG session available - running in demo mode, logging trade only"
+          liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logWarn "No IG session available - running in demo mode, logging trade only"
           return $ Right "DEMO_TRADE_LOGGED"
 
         Just session -> do
@@ -575,34 +586,34 @@ executeEnterSignal connId instrument side positionSize = do
           result <- liftIO $ IGDeals.createPosition (bcConfig conn) session dealReq
           case result of
             Left err -> do
-              liftIO $ compLogError brokerLogger ("Failed to create position: " <> T.pack (show err))
+              liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logError ("Failed to create position: " <> T.pack (show err))
               return $ Left err
             Right dealResponse -> do
-              liftIO $ compLogInfo brokerLogger ("Position creation submitted: " <> dealResponseReference dealResponse)
+              liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo ("Position creation submitted: " <> dealResponseReference dealResponse)
 
               -- Wait and check deal confirmation
               liftIO $ threadDelay 1000000 -- 1 second
               confirmResult <- liftIO $ IGDeals.getDealConfirmation (bcConfig conn) session (dealResponseReference dealResponse)
               case confirmResult of
                 Left confErr -> do
-                  liftIO $ compLogWarn brokerLogger ("Could not confirm deal: " <> T.pack (show confErr))
+                  liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logWarn ("Could not confirm deal: " <> T.pack (show confErr))
                   return $ Right $ dealResponseReference dealResponse
                 Right confirmation -> do
                   case confirmationDealStatus confirmation of
                     Just REJECTED -> do
                       let reason = maybe "No reason provided" id (confirmationReason confirmation)
-                      liftIO $ compLogError brokerLogger ("Deal REJECTED - Reason: " <> reason)
+                      liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logError ("Deal REJECTED - Reason: " <> reason)
                       return $ Left $ brokerError ("Deal rejected: " <> reason)
                     Just dealStatus -> do
-                      liftIO $ compLogInfo brokerLogger ("Deal confirmed with status: " <> T.pack (show dealStatus))
+                      liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo ("Deal confirmed with status: " <> T.pack (show dealStatus))
                       return $ Right $ dealResponseReference dealResponse
                     Nothing -> do
-                      liftIO $ compLogWarn brokerLogger "Deal confirmation received but no status provided"
+                      liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logWarn "Deal confirmation received but no status provided"
                       return $ Right $ dealResponseReference dealResponse
 
 executeExitSignal :: (MonadIO m) => ConnectionId -> Instrument -> BrokerDataProviderM m (Result Text)
 executeExitSignal connId instrument = do
-  liftIO $ compLogInfo brokerLogger ("Executing EXIT signal (modular) for " <> T.pack (show instrument))
+  liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo ("Executing EXIT signal (modular) for " <> T.pack (show instrument))
 
   context <- ask
   let connectionsVar = bcConnections context
@@ -612,14 +623,14 @@ executeExitSignal connId instrument = do
 
   case maybeConn of
     Nothing -> do
-      liftIO $ compLogError brokerLogger ("Connection not found: " <> T.pack (show connId))
+      liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logError ("Connection not found: " <> T.pack (show connId))
       return $ Left $ brokerError ("Connection not found: " <> T.pack (show connId))
 
     Just conn -> do
       maybeSession <- liftIO $ readTVarIO (bcIGSession conn)
       case maybeSession of
         Nothing -> do
-          liftIO $ compLogWarn brokerLogger "No IG session available - running in demo mode, logging exit only"
+          liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logWarn "No IG session available - running in demo mode, logging exit only"
           return $ Right "DEMO_EXIT_LOGGED"
 
         Just session -> do
@@ -627,23 +638,9 @@ executeExitSignal connId instrument = do
           positionsResult <- liftIO $ IGDeals.getPositions (bcConfig conn) session
           case positionsResult of
             Left err -> do
-              liftIO $ compLogError brokerLogger ("Failed to get positions: " <> T.pack (show err))
+              liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logError ("Failed to get positions: " <> T.pack (show err))
               return $ Left err
             Right positions -> do
-              liftIO $ compLogInfo brokerLogger ("Found " <> T.pack (show (length positions)) <> " open positions")
+              liftIO $ runFileLoggerWithComponent (ComponentName "BROKER") $ logInfo ("Found " <> T.pack (show (length positions)) <> " open positions")
               return $ Right "DEMO_EXIT_LOGGED"  -- For now, just log
 
-
--- Deal reference generation (for tests)
-mkDealReference :: Text -> Text -> Text -> Text
-mkDealReference prefix connInfo timestamp =
-  let -- Limit each component and remove non-alphanumeric characters
-      cleanPrefix = T.take 6 $ T.filter isAlphaNum prefix
-      cleanConnInfo = T.take 8 $ T.filter isAlphaNum connInfo
-      cleanTimestamp = T.take 12 $ T.filter isAlphaNum timestamp
-      -- Concatenate without separators to ensure alphanumeric
-      combined = cleanPrefix <> cleanConnInfo <> cleanTimestamp
-      -- Ensure final result is <= 30 characters
-      final = T.take 30 combined
-      -- If the result is empty after filtering, provide a default alphanumeric fallback
-  in if T.null final then "TEMPEH001" else final

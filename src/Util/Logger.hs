@@ -6,7 +6,7 @@ module Util.Logger
   ( -- Core logging interface
     MonadLogger(..)
   , LogLevel(..)
-  , LogEvent(..)
+  , LogEntry(..) -- JSON log entry format (now the only format)
   , CorrelationId(..)
   , ComponentName(..)
   , LogContext(..)
@@ -23,20 +23,19 @@ module Util.Logger
   , logWarn
   , logDebug
 
-  -- Component logger factory (NEW)
+  -- Component logger factory
   , ComponentLogger(..)
   , makeComponentLogger
 
-  -- Component logging functions (ADDED)
+  -- Component logging functions
   , compLogInfo
   , compLogWarn
   , compLogError
   , compLogDebug
 
-  -- Implementation
+  -- Implementation (JSON only)
   , runConsoleLogger
   , runFileLogger
-  , runStructuredLogger
   , generateLogFileName
   , runFileLoggerWithComponent
   ) where
@@ -44,6 +43,7 @@ module Util.Logger
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (ReaderT, runReaderT, asks, local)
 import Data.Aeson (ToJSON(..), FromJSON(..), (.=), object, Value, encode)
+import qualified Data.Aeson as A
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -55,15 +55,26 @@ import qualified Data.Map.Strict as Map
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
 import System.IO (Handle, openFile, hClose, IOMode(..), hFlush)
-import Control.Exception (bracket) -- Added missing import
+import Control.Exception (bracket)
 import qualified Data.ByteString.Lazy as LBS
 
 -- Core types
 data LogLevel = Debug | Info | Warn | Error
   deriving (Show, Eq, Ord, Generic)
 
-instance ToJSON LogLevel
-instance FromJSON LogLevel
+instance ToJSON LogLevel where
+  toJSON Debug = "DEBUG"
+  toJSON Info = "INFO"
+  toJSON Warn = "WARN"
+  toJSON Error = "ERROR"
+
+instance FromJSON LogLevel where
+  parseJSON = A.withText "LogLevel" $ \t -> case t of
+    "DEBUG" -> return Debug
+    "INFO" -> return Info
+    "WARN" -> return Warn
+    "ERROR" -> return Error
+    _ -> fail $ "Invalid LogLevel: " ++ T.unpack t
 
 newtype CorrelationId = CorrelationId { unCorrelationId :: Text }
   deriving (Show, Eq, Generic)
@@ -77,37 +88,40 @@ newtype ComponentName = ComponentName { unComponentName :: Text }
 instance ToJSON ComponentName
 instance FromJSON ComponentName
 
--- Structured log event
-data LogEvent = LogEvent
-  { leLevel :: LogLevel
-  , leTimestamp :: UTCTime
-  , leCorrelationId :: Maybe CorrelationId
-  , leComponent :: Maybe ComponentName
-  , leMessage :: Text
-  , leMetadata :: Map.Map Text Value
+-- JSON log entry format (now the ONLY format)
+data LogEntry = LogEntry
+  { logEntryTimestamp :: String     -- ISO 8601 format
+  , logEntryLevel :: LogLevel       -- DEBUG|INFO|WARN|ERROR
+  , logEntryComponent :: Text       -- Component name as text
+  , logEntryMessage :: Text         -- Human readable message
   } deriving (Show, Generic)
 
-instance ToJSON LogEvent where
-  toJSON (LogEvent level ts corrId comp msg meta) = object
-    [ "level" .= level
-    , "timestamp" .= ts
-    , "correlationId" .= corrId
+instance ToJSON LogEntry where
+  toJSON (LogEntry ts level comp msg) = object
+    [ "ts" .= ts
+    , "level" .= level
     , "component" .= comp
-    , "message" .= msg
-    , "metadata" .= meta
+    , "msg" .= msg
     ]
 
--- Logging context for Reader monad
+instance FromJSON LogEntry where
+  parseJSON = A.withObject "LogEntry" $ \o -> LogEntry
+    <$> o A..: "ts"
+    <*> o A..: "level"
+    <*> o A..: "component"
+    <*> o A..: "msg"
+
+-- Simplified logging context (no dual-mode flags needed)
 data LogContext = LogContext
   { lcCorrelationId :: Maybe CorrelationId
   , lcComponent :: Maybe ComponentName
-  , lcLogFile :: Maybe FilePath  -- New field for specific log file
+  , lcLogFile :: Maybe FilePath
   } deriving (Show)
 
 emptyLogContext :: LogContext
 emptyLogContext = LogContext Nothing Nothing Nothing
 
--- Logging monad class - fits your existing pattern
+-- Logging monad class
 class Monad m => MonadLogger m where
   logAtLevel :: LogLevel -> Text -> Map.Map Text Value -> m ()
 
@@ -135,52 +149,42 @@ logWarn msg = logAtLevel Warn msg Map.empty
 logDebug :: MonadLogger m => Text -> m ()
 logDebug msg = logAtLevel Debug msg Map.empty
 
--- Implementation for ReaderT LogContext IO - enhanced to support file logging
+-- Implementation for ReaderT LogContext IO - JSON output only
 instance MonadIO m => MonadLogger (ReaderT LogContext m) where
   logAtLevel level msg metadata = do
     ctx <- asks id
     ts <- liftIO getCurrentTime
-    let event = LogEvent
-          { leLevel = level
-          , leTimestamp = ts
-          , leCorrelationId = lcCorrelationId ctx
-          , leComponent = lcComponent ctx
-          , leMessage = msg
-          , leMetadata = metadata
-          }
+    let jsonEntry = createJsonLogEntry level msg ctx ts
     case lcLogFile ctx of
-      Just filePath -> liftIO $ writeLogEventToFile filePath event
-      Nothing -> liftIO $ formatAndPrintLogEvent event
+      Just filePath -> liftIO $ writeJsonLogToFile filePath jsonEntry
+      Nothing -> liftIO $ printJsonLog jsonEntry
 
--- Console formatter
-formatAndPrintLogEvent :: LogEvent -> IO ()
-formatAndPrintLogEvent event = do
-  let timestamp = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (leTimestamp event)
-      level = show (leLevel event)
-      corrId = maybe "" ((" [" <>) . (<> "]") . unCorrelationId) (leCorrelationId event)
-      comp = maybe "" ((" (" <>) . (<> ")") . unComponentName) (leComponent event)
-      formatted = T.pack timestamp <> " [" <> T.pack level <> "]" <> corrId <> comp <> "  " <> leMessage event
-  TIO.putStrLn formatted
+-- Create JSON log entry from context and event data
+createJsonLogEntry :: LogLevel -> Text -> LogContext -> UTCTime -> LogEntry
+createJsonLogEntry level msg ctx ts = LogEntry
+  { logEntryTimestamp = formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S.%qZ" ts
+  , logEntryLevel = level
+  , logEntryComponent = maybe "UNKNOWN" unComponentName (lcComponent ctx)
+  , logEntryMessage = msg
+  }
 
--- New: Write log event to file with proper error handling
-writeLogEventToFile :: FilePath -> LogEvent -> IO ()
-writeLogEventToFile filePath event = do
+-- Print JSON log to console
+printJsonLog :: LogEntry -> IO ()
+printJsonLog entry = TIO.putStrLn $ TL.toStrict $ TLE.decodeUtf8 $ encode entry
+
+-- Write JSON log to file
+writeJsonLogToFile :: FilePath -> LogEntry -> IO ()
+writeJsonLogToFile filePath entry = do
   -- Ensure log directory exists
   createDirectoryIfMissing True (takeDirectory filePath)
 
-  -- Format log entry for file output
-  let timestamp = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (leTimestamp event)
-      level = show (leLevel event)
-      corrId = maybe "" ((" [" <>) . (<> "]") . unCorrelationId) (leCorrelationId event)
-      comp = maybe "" ((" (" <>) . (<> ")") . unComponentName) (leComponent event)
-      formatted = T.pack timestamp <> " [" <> T.pack level <> "]" <> corrId <> comp <> "  " <> leMessage event
-
-  -- Append to log file with proper error handling
+  -- Write JSON entry to file
+  let jsonOutput = TL.toStrict $ TLE.decodeUtf8 $ encode entry
   bracket (openFile filePath AppendMode) hClose $ \handle -> do
-    TIO.hPutStrLn handle formatted
+    TIO.hPutStrLn handle jsonOutput
     hFlush handle
 
--- New: Generate standardized log file names (daily grouping)
+-- Generate standardized log file names (daily grouping)
 generateLogFileName :: ComponentName -> IO FilePath
 generateLogFileName (ComponentName comp) = do
   now <- getCurrentTime
@@ -208,23 +212,15 @@ takeDirectory path = case reverse (splitOn '/' path) of
     intercalate _ [x] = x
     intercalate sep (x:xs) = x ++ sep ++ intercalate sep xs
 
--- Enhanced runner functions
+-- Simplified runner functions (JSON only)
 runConsoleLogger :: ReaderT LogContext IO a -> IO a
 runConsoleLogger action = runReaderT action emptyLogContext
 
--- Fully implemented file logger
 runFileLogger :: FilePath -> ReaderT LogContext IO a -> IO a
 runFileLogger filePath action = do
   let logContext = emptyLogContext { lcLogFile = Just filePath }
   runReaderT action logContext
 
--- Structured JSON logger (writes JSON to file)
-runStructuredLogger :: FilePath -> ReaderT LogContext IO a -> IO a
-runStructuredLogger filePath action = do
-  let logContext = emptyLogContext { lcLogFile = Just filePath }
-  runReaderT action logContext
-
--- New: Run with auto-generated log file name based on component
 runFileLoggerWithComponent :: ComponentName -> ReaderT LogContext IO a -> IO a
 runFileLoggerWithComponent comp action = do
   filePath <- generateLogFileName comp

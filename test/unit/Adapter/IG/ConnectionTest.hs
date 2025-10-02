@@ -109,15 +109,37 @@ connectionTests = testGroup "Adapter.IG.Connection"
         all (\c -> c >= '0' && c <= '9') connIdStr @?= True -- Should be all digits
     ]
 
-  , testGroup "Error Handling"
-    [ testCase "Close non-existent connection should return error" $ do
+  , testGroup "Error Handling and Idempotency"
+    [ testCase "Close non-existent connection should succeed (idempotent)" $ do
         connectionsVar <- newTVarIO Map.empty
 
         result <- runReaderT (runConnectionManager (closeConnection mockConnectionId)) connectionsVar
 
         case result of
-          Left _ -> return () -- Expected error
-          Right () -> assertFailure "Should have failed for non-existent connection"
+          Right () -> return () -- Expected success due to idempotency
+          Left err -> assertFailure $ "Should have succeeded for idempotent close: " ++ show err
+
+    , testCase "Close connection twice should succeed (idempotent)" $ do
+        connectionsVar <- newTVarIO Map.empty
+        session <- mockIGSession
+
+        -- First establish connection
+        _ <- runReaderT (runConnectionManager (establishConnection mockBrokerConfig mockConnectionId session)) connectionsVar
+
+        -- Close it once
+        result1 <- runReaderT (runConnectionManager (closeConnection mockConnectionId)) connectionsVar
+        case result1 of
+          Left err -> assertFailure $ "First close failed: " ++ show err
+          Right () -> return ()
+
+        -- Close it again (should be idempotent)
+        result2 <- runReaderT (runConnectionManager (closeConnection mockConnectionId)) connectionsVar
+        case result2 of
+          Right () -> do
+            -- Verify connection is still removed
+            connections <- readTVarIO connectionsVar
+            Map.member mockConnectionId connections @?= False
+          Left err -> assertFailure $ "Second close should be idempotent: " ++ show err
 
     , testCase "Get state of non-existent connection should return error" $ do
         connectionsVar <- newTVarIO Map.empty

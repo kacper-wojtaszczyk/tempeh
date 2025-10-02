@@ -7,7 +7,6 @@
 module Adapter.IG.Connection
   ( -- Connection operations
     ConnectionManager(..)
-  , runConnectionManager
   , establishConnection
   , closeConnection
   , getConnectionState
@@ -104,16 +103,16 @@ closeConnection connId = do
   result <- liftIO $ atomically $ do
     connections <- readTVar connectionsVar
     case Map.lookup connId connections of
-      Nothing -> return $ Left $ brokerError ("Connection not found: " <> T.pack (show connId))
+      Nothing -> do
+        -- Connection already closed or never existed - this is OK for idempotency
+        return $ Right ()
       Just conn -> do
         writeTVar (bcStatus conn) Disconnected
         writeTVar connectionsVar (Map.delete connId connections)
         return $ Right ()
 
-  case result of
-    Right () -> liftIO $ connLogInfo ("Connection closed: " <> T.pack (show connId))
-    Left err -> liftIO $ connLogError ("Failed to close connection: " <> T.pack (show err))
-
+  -- Always log success since idempotent close is successful
+  liftIO $ connLogInfo ("Connection closed: " <> T.pack (show connId))
   return result
 
 getConnectionState :: MonadIO m => ConnectionId -> ConnectionManager m (Result ConnectionState)
