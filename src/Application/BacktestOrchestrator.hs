@@ -13,10 +13,11 @@ import Application.Strategy.Types (StrategyParameters(..), StrategyInstance(..),
 import Application.Strategy.Factory (initializeStrategyRegistry)
 import Application.Strategy.Registry (StrategyRegistry, findStrategyByKeyword)
 import Util.Error (Result, AppError(..), dataError, configError)
-import Util.Logger (logInfo, logError, MonadLogger)
+import Util.Logger (logInfo, logError, logInfoWithContext, MonadLogger)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Scientific (Scientific, fromFloatDigits)
 import qualified Data.Text as T
+import qualified Data.Aeson as A
 import qualified Strategy.EmaCross as EmaCross
 
 -- Orchestrator configuration
@@ -40,7 +41,15 @@ orchestrateBacktest :: ( MonadIO m
                     => BacktestConfig
                     -> m (Result BacktestResult)
 orchestrateBacktest config = do
-  logInfo "Starting backtest orchestration"
+  -- Create context for logging with dynamic values (now using proper JSON serialization)
+  let backtestContext = A.object
+        [ "instrument" A..= bcInstrument config  -- Now uses ToJSON instance
+        , "dateRange" A..= bcDateRange config    -- Now uses ToJSON instance
+        , "strategy" A..= spStrategyType (bcStrategyParams config)
+        , "initialBalance" A..= bcInitialBalance config
+        ]
+
+  logInfoWithContext "Starting backtest orchestration" backtestContext
 
   -- Step 1: Validate configuration
   validateResult <- validateConfiguration config
@@ -51,7 +60,7 @@ orchestrateBacktest config = do
     Right () -> do
 
       -- Step 2: Load and validate data
-      logInfo $ "Loading data for " <> T.pack (show (bcInstrument config))
+      logInfoWithContext "Loading market data" (A.object ["instrument" A..= bcInstrument config])
       dataResult <- loadAndValidateData config
       case dataResult of
         Left err -> do
@@ -60,7 +69,8 @@ orchestrateBacktest config = do
         Right candles -> do
 
           -- Step 3: Execute backtest with risk management
-          logInfo "Executing backtest with risk management"
+          logInfoWithContext "Executing backtest with risk management"
+            (A.object ["candleCount" A..= length candles, "strategy" A..= spStrategyType (bcStrategyParams config)])
           backtestResult <- executeBacktestWithRiskManagement config candles
           case backtestResult of
             Left err -> do
@@ -69,7 +79,8 @@ orchestrateBacktest config = do
             Right result -> do
 
               -- Step 4: Generate comprehensive report
-              logInfo "Generating performance report"
+              logInfoWithContext "Generating performance report"
+                (A.object ["finalBalance" A..= brFinalBalance result, "totalTrades" A..= brTotalTrades result])
               let rptCtx = ReportContext (bcInstrument config) (bcDateRange config) (bcStrategyParams config) (bcInitialBalance config)
               reportResult <- generatePerformanceReport result config rptCtx
               case reportResult of

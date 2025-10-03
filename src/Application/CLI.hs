@@ -119,8 +119,7 @@ runBacktest instrument dateRange strategyParams = do
         , bcPositionSize = fromFloatDigits 1000.0
         }
       -- Create component name for logging based on backtest parameters
-      componentName = ComponentName $ "backtest-" <> T.pack (show instrument) <> "-" <>
-                                     spStrategyType strategyParams
+      componentName = ComponentName "BACKTEST"
 
   putStrLn $ "Logging to file with component: " <> show componentName
   result <- runAppMWithLogging componentName env (orchestrateBacktest btConfig)

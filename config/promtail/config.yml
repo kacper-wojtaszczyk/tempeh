@@ -23,11 +23,14 @@ scrape_configs:
             level: level
             component: component
             message: msg
+            context: context
       - labels:
           level:
           component:
       - timestamp:
           source: timestamp
           format: RFC3339Nano
-      - output:
-          source: message
+      # Keep both message and context in the final log entry
+      - template:
+          source: output
+          template: '{{ .message }}{{ if .context }} | context: {{ .context }}{{ end }}'

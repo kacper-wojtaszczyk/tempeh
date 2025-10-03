@@ -27,6 +27,12 @@ data Side = Buy | Sell
 newtype Instrument = Instrument { unInstrument :: Text }
   deriving (Show, Eq, Ord, Generic)
 
+instance JSON.ToJSON Instrument where
+  toJSON (Instrument txt) = JSON.toJSON txt
+
+instance JSON.FromJSON Instrument where
+  parseJSON v = Instrument <$> JSON.parseJSON v
+
 data Candle = Candle
   { cTime  :: UTCTime
   , cOpen  :: Price

@@ -12,7 +12,7 @@ import Data.Time (UTCTime(..), fromGregorian, secondsToDiffTime)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.Map.Strict as Map
-import Data.Aeson (Value(..), toJSON, decode)
+import Data.Aeson (Value(..), toJSON, decode, object, (.=))
 import qualified Data.Aeson as A
 import System.Directory (doesFileExist, removeFile, createDirectoryIfMissing)
 import System.IO.Temp (withSystemTempDirectory)
@@ -106,12 +106,12 @@ tests = testGroup "Logger"
     , testCase "Structured logging with metadata" $ do
         (_, jsonEntries) <- captureJsonLogOutput $ do
           withComponent testComponent $ do
-            let metadata = Map.fromList
-                  [ ("key1", String "value1")
-                  , ("key2", Number 42)
-                  , ("key3", Bool True)
+            let contextValue = object
+                  [ "key1" .= String "value1"
+                  , "key2" .= Number 42
+                  , "key3" .= Bool True
                   ]
-            logAtLevel Info "Structured message" metadata
+            logAtLevel Info "Structured message" (Just contextValue)
 
         length jsonEntries @?= 1
         let entry = head jsonEntries

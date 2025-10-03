@@ -23,6 +23,12 @@ module Util.Logger
   , logWarn
   , logDebug
 
+  -- Context-aware logging functions
+  , logInfoWithContext
+  , logErrorWithContext
+  , logWarnWithContext
+  , logDebugWithContext
+
   -- Component logger factory
   , ComponentLogger(..)
   , makeComponentLogger
@@ -94,15 +100,24 @@ data LogEntry = LogEntry
   , logEntryLevel :: LogLevel       -- DEBUG|INFO|WARN|ERROR
   , logEntryComponent :: Text       -- Component name as text
   , logEntryMessage :: Text         -- Human readable message
+  , logEntryContext :: Maybe Value  -- Optional context for dynamic values
   } deriving (Show, Generic)
 
 instance ToJSON LogEntry where
-  toJSON (LogEntry ts level comp msg) = object
-    [ "ts" .= ts
-    , "level" .= level
-    , "component" .= comp
-    , "msg" .= msg
-    ]
+  toJSON (LogEntry ts level comp msg ctx) = case ctx of
+    Just contextValue -> object
+      [ "ts" .= ts
+      , "level" .= level
+      , "component" .= comp
+      , "msg" .= msg
+      , "context" .= contextValue
+      ]
+    Nothing -> object
+      [ "ts" .= ts
+      , "level" .= level
+      , "component" .= comp
+      , "msg" .= msg
+      ]
 
 instance FromJSON LogEntry where
   parseJSON = A.withObject "LogEntry" $ \o -> LogEntry
@@ -110,6 +125,7 @@ instance FromJSON LogEntry where
     <*> o A..: "level"
     <*> o A..: "component"
     <*> o A..: "msg"
+    <*> o A..:? "context"
 
 -- Simplified logging context (no dual-mode flags needed)
 data LogContext = LogContext
@@ -123,11 +139,11 @@ emptyLogContext = LogContext Nothing Nothing Nothing
 
 -- Logging monad class
 class Monad m => MonadLogger m where
-  logAtLevel :: LogLevel -> Text -> Map.Map Text Value -> m ()
+  logAtLevel :: LogLevel -> Text -> Maybe Value -> m ()
 
 -- Structured logging with context
-logWithContext :: MonadLogger m => LogLevel -> Text -> Map.Map Text Value -> m ()
-logWithContext = logAtLevel
+logWithContext :: MonadLogger m => LogLevel -> Text -> Value -> m ()
+logWithContext level msg ctx = logAtLevel level msg (Just ctx)
 
 -- Context manipulation
 withCorrelationId :: Monad m => CorrelationId -> ReaderT LogContext m a -> ReaderT LogContext m a
@@ -138,34 +154,48 @@ withComponent comp = local (\ctx -> ctx { lcComponent = Just comp })
 
 -- Convenience functions
 logInfo :: MonadLogger m => Text -> m ()
-logInfo msg = logAtLevel Info msg Map.empty
+logInfo msg = logAtLevel Info msg Nothing
 
 logError :: MonadLogger m => Text -> m ()
-logError msg = logAtLevel Error msg Map.empty
+logError msg = logAtLevel Error msg Nothing
 
 logWarn :: MonadLogger m => Text -> m ()
-logWarn msg = logAtLevel Warn msg Map.empty
+logWarn msg = logAtLevel Warn msg Nothing
 
 logDebug :: MonadLogger m => Text -> m ()
-logDebug msg = logAtLevel Debug msg Map.empty
+logDebug msg = logAtLevel Debug msg Nothing
+
+-- New functions for logging with context
+logInfoWithContext :: MonadLogger m => Text -> Value -> m ()
+logInfoWithContext msg ctx = logAtLevel Info msg (Just ctx)
+
+logErrorWithContext :: MonadLogger m => Text -> Value -> m ()
+logErrorWithContext msg ctx = logAtLevel Error msg (Just ctx)
+
+logWarnWithContext :: MonadLogger m => Text -> Value -> m ()
+logWarnWithContext msg ctx = logAtLevel Warn msg (Just ctx)
+
+logDebugWithContext :: MonadLogger m => Text -> Value -> m ()
+logDebugWithContext msg ctx = logAtLevel Debug msg (Just ctx)
 
 -- Implementation for ReaderT LogContext IO - JSON output only
 instance MonadIO m => MonadLogger (ReaderT LogContext m) where
-  logAtLevel level msg metadata = do
+  logAtLevel level msg maybeContext = do
     ctx <- asks id
     ts <- liftIO getCurrentTime
-    let jsonEntry = createJsonLogEntry level msg ctx ts
+    let jsonEntry = createJsonLogEntry level msg maybeContext ctx ts
     case lcLogFile ctx of
       Just filePath -> liftIO $ writeJsonLogToFile filePath jsonEntry
       Nothing -> liftIO $ printJsonLog jsonEntry
 
 -- Create JSON log entry from context and event data
-createJsonLogEntry :: LogLevel -> Text -> LogContext -> UTCTime -> LogEntry
-createJsonLogEntry level msg ctx ts = LogEntry
+createJsonLogEntry :: LogLevel -> Text -> Maybe Value -> LogContext -> UTCTime -> LogEntry
+createJsonLogEntry level msg maybeContext ctx ts = LogEntry
   { logEntryTimestamp = formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S.%qZ" ts
   , logEntryLevel = level
   , logEntryComponent = maybe "UNKNOWN" unComponentName (lcComponent ctx)
   , logEntryMessage = msg
+  , logEntryContext = maybeContext
   }
 
 -- Print JSON log to console
@@ -224,7 +254,8 @@ runFileLogger filePath action = do
 runFileLoggerWithComponent :: ComponentName -> ReaderT LogContext IO a -> IO a
 runFileLoggerWithComponent comp action = do
   filePath <- generateLogFileName comp
-  runFileLogger filePath action
+  let logContext = emptyLogContext { lcLogFile = Just filePath, lcComponent = Just comp }
+  runReaderT action logContext
 
 -- Component logger record for eliminating duplication (NEW)
 data ComponentLogger = ComponentLogger

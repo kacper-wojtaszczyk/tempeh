@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveGeneric #-}
 module Domain.Services.BacktestService where
 
 import Domain.Types
@@ -7,6 +8,8 @@ import Util.Error (Result, AppError(..))
 import Data.Scientific (Scientific)
 import Data.Text (Text)
 import Data.Time (UTCTime)
+import GHC.Generics (Generic)
+import qualified Data.Aeson as JSON
 
 -- Pure domain service for backtesting logic
 class Monad m => BacktestService m where
@@ -77,7 +80,20 @@ data DateRange = DateRange
   , drStartMonth :: Int
   , drEndYear :: Int
   , drEndMonth :: Int
-  } deriving (Show, Eq)
+  } deriving (Show, Eq, Generic)
+
+instance JSON.ToJSON DateRange where
+  toJSON (DateRange startYear startMonth endYear endMonth) =
+    JSON.object [ "start" JSON..= JSON.object [ "year" JSON..= startYear, "month" JSON..= startMonth ]
+                , "end" JSON..= JSON.object [ "year" JSON..= endYear, "month" JSON..= endMonth ]
+                ]
+
+instance JSON.FromJSON DateRange where
+  parseJSON = JSON.withObject "DateRange" $ \v -> DateRange
+    <$> (v JSON..: "start" >>= \o -> o JSON..: "year")
+    <*> (v JSON..: "start" >>= \o -> o JSON..: "month")
+    <*> (v JSON..: "end" >>= \o -> o JSON..: "year")
+    <*> (v JSON..: "end" >>= \o -> o JSON..: "month")
 
 data CandlePeriod = OneMinute | FiveMinute | FifteenMinute | OneHour | FourHour | Daily
   deriving (Show, Eq)

@@ -46,7 +46,7 @@ newtype AppM a = AppM { unAppM :: ReaderT AppEnv IO a }
 instance MonadLogger AppM where
   logAtLevel level msg metadata = do
     ctx <- asks aeLogContext
-    let component = maybe (ComponentName "app") id (lcComponent ctx)
+    let component = maybe (ComponentName "UNKNOWN") id (lcComponent ctx)
     liftIO $ runFileLoggerWithComponent component $
       logAtLevel level msg metadata
 
