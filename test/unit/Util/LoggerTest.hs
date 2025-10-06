@@ -232,6 +232,7 @@ tests = testGroup "Logger"
               , logEntryLevel = Info
               , logEntryComponent = "TestComponent"
               , logEntryMessage = "Test message"
+              , logEntryContext = Nothing
               }
 
         -- Should serialize to expected JSON format
