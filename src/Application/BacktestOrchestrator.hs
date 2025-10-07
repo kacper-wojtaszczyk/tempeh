@@ -92,8 +92,17 @@ orchestrateBacktest config = do
                   pure $ Right finalResult
 
 -- Configuration validation
-validateConfiguration :: (MonadIO m, RiskManager m, BacktestService m) => BacktestConfig -> m (Result ())
+validateConfiguration :: (MonadIO m, RiskManager m, BacktestService m, MonadLogger m) => BacktestConfig -> m (Result ())
 validateConfiguration config = do
+  let validationContext = A.object
+        [ "initialBalance" A..= bcInitialBalance config
+        , "positionSize" A..= bcPositionSize config
+        , "instrument" A..= bcInstrument config
+        , "maxDrawdown" A..= rlMaxDrawdown (bcRiskLimits config)
+        ]
+
+  logInfoWithContext "Validating backtest configuration" validationContext
+
   let params = BacktestParameters
         { bpInitialBalance = bcInitialBalance config
         , bpPositionSize = bcPositionSize config
@@ -104,38 +113,88 @@ validateConfiguration config = do
 
   paramValidation <- validateBacktestParameters params
   case paramValidation of
-    Left err -> pure $ Left err
-    Right () -> validateRiskLimits (bcRiskLimits config)
+    Left err -> do
+      logError $ "Parameter validation failed: " <> T.pack (show err)
+      pure $ Left err
+    Right () -> do
+      logInfoWithContext "Validating risk limits" validationContext
+      riskResult <- validateRiskLimits (bcRiskLimits config)
+      case riskResult of
+        Left err -> logError $ "Risk limits validation failed: " <> T.pack (show err)
+        Right () -> logInfo "Configuration validation completed successfully"
+      pure riskResult
 
 -- Data loading and validation
-loadAndValidateData :: (MonadIO m, DataProvider m) => BacktestConfig -> m (Result [Candle])
+loadAndValidateData :: (MonadIO m, DataProvider m, MonadLogger m) => BacktestConfig -> m (Result [Candle])
 loadAndValidateData config = do
+  let dataContext = A.object
+        [ "instrument" A..= bcInstrument config
+        , "dateRange" A..= bcDateRange config
+        ]
+
+  logInfoWithContext "Loading tick data from data provider" dataContext
+
   -- Load tick data
   ticksResult <- loadTicks (bcInstrument config) (bcDateRange config)
   case ticksResult of
-    Left err -> pure $ Left err
+    Left err -> do
+      logError $ "Tick data loading failed: " <> T.pack (show err)
+      pure $ Left err
     Right ticks -> do
+      let tickContext = A.object
+            [ "tickCount" A..= length ticks
+            , "instrument" A..= bcInstrument config
+            ]
+      logInfoWithContext "Validating data quality" tickContext
+
       -- Validate data quality
       qualityResult <- validateDataQuality ticks
       case qualityResult of
-        Left err -> pure $ Left err
+        Left err -> do
+          logError $ "Data quality validation failed: " <> T.pack (show err)
+          pure $ Left err
         Right qualityReport -> do
+          let qualityContext = A.object
+                [ "qualityScore" A..= dqrQualityScore qualityReport
+                , "tickCount" A..= length ticks
+                , "threshold" A..= (50 :: Int)
+                ]
+
+          logInfoWithContext "Data quality assessment complete" qualityContext
+
           if dqrQualityScore qualityReport < 50  -- Minimum quality threshold
-            then pure $ Left $ dataError "Data quality too low for reliable backtesting"
+            then do
+              logError "Data quality below minimum threshold for reliable backtesting"
+              pure $ Left $ dataError "Data quality too low for reliable backtesting"
             else do
+              logInfoWithContext "Converting ticks to candles" (A.object ["period" A..= ("OneMinute" :: T.Text)])
               -- Convert to candles
               candlesResult <- loadCandles (bcInstrument config) (bcDateRange config) OneMinute
+              case candlesResult of
+                Left err -> logError $ "Candle conversion failed: " <> T.pack (show err)
+                Right candles -> logInfoWithContext "Candles loaded successfully"
+                  (A.object ["candleCount" A..= length candles])
               pure candlesResult
 
 -- Backtest execution with risk management
 executeBacktestWithRiskManagement :: ( MonadIO m
                                      , BacktestService m
                                      , RiskManager m
+                                     , MonadLogger m
                                      )
                                    => BacktestConfig
                                    -> [Candle]
                                    -> m (Result BacktestResult)
 executeBacktestWithRiskManagement config candles = do
+  let executionContext = A.object
+        [ "candleCount" A..= length candles
+        , "strategy" A..= spStrategyType (bcStrategyParams config)
+        , "initialBalance" A..= bcInitialBalance config
+        , "positionSize" A..= bcPositionSize config
+        ]
+
+  logInfoWithContext "Initializing backtest execution" executionContext
+
   let params = BacktestParameters
         { bpInitialBalance = bcInitialBalance config
         , bpPositionSize = bcPositionSize config
@@ -147,18 +206,36 @@ executeBacktestWithRiskManagement config candles = do
   -- Create strategy instance using the registry system
   let registry = initializeStrategyRegistry
   case createStrategyInstanceFromParams registry (bcStrategyParams config) of
-    Left err -> pure (Left err)
+    Left err -> do
+      logError $ "Strategy creation failed: " <> T.pack (show err)
+      pure (Left err)
     Right strategyInstance -> do
+      logInfoWithContext "Strategy instance created"
+        (A.object ["strategyName" A..= siName strategyInstance])
+
       -- Execute backtest with initial state and signal generator
       backtestResult <- executeBacktest params (siInitialState strategyInstance) (siSignalGenerator strategyInstance) candles
       case backtestResult of
-        Left err -> pure $ Left err
+        Left err -> do
+          logError $ "Backtest execution failed: " <> T.pack (show err)
+          pure $ Left err
         Right result -> do
+          let resultContext = A.object
+                [ "finalBalance" A..= brFinalBalance result
+                , "totalTrades" A..= brTotalTrades result
+                , "pnl" A..= brPnL result
+                ]
+          logInfoWithContext "Backtest execution completed, applying risk checks" resultContext
+
           -- Apply risk management checks
           riskCheckResult <- checkRiskLimits result (bcRiskLimits config)
           case riskCheckResult of
-            Left err -> pure $ Left err
-            Right () -> pure $ Right result
+            Left err -> do
+              logError $ "Risk limit checks failed: " <> T.pack (show err)
+              pure $ Left err
+            Right () -> do
+              logInfo "Risk limit checks passed"
+              pure $ Right result
 
 -- Helper function to create strategy instance from parameters using registry
 createStrategyInstanceFromParams :: StrategyRegistry -> StrategyParameters -> Result StrategyInstance
@@ -169,22 +246,43 @@ createStrategyInstanceFromParams registry params =
        Nothing -> Left $ configError $ "Unknown strategy type: " <> strategyType
 
 -- Generate comprehensive report
-generatePerformanceReport :: (MonadIO m, BacktestService m, ReportGenerator m)
+generatePerformanceReport :: (MonadIO m, BacktestService m, ReportGenerator m, MonadLogger m)
                           => BacktestResult
                           -> BacktestConfig
                           -> ReportContext
                           -> m (Result BacktestResult)
 generatePerformanceReport result config rptCtx = do
+  let reportContext = A.object
+        [ "finalBalance" A..= brFinalBalance result
+        , "totalTrades" A..= brTotalTrades result
+        , "instrument" A..= bcInstrument config
+        ]
+
+  logInfoWithContext "Calculating performance metrics" reportContext
+
   -- Calculate performance metrics
   metricsResult <- calculatePerformanceMetrics result (bcInitialBalance config)
   case metricsResult of
-    Left err -> pure $ Left err
+    Left err -> do
+      logError $ "Performance metrics calculation failed: " <> T.pack (show err)
+      pure $ Left err
     Right metrics -> do
+      let metricsContext = A.object
+            [ "winRate" A..= pmWinRate metrics
+            , "profitFactor" A..= pmProfitFactor metrics
+            , "maxDrawdown" A..= pmMaxDrawdown metrics
+            ]
+      logInfoWithContext "Performance metrics calculated" metricsContext
+
       -- Generate report with context
       reportResult <- generateReport result metrics rptCtx
       case reportResult of
-        Left err -> pure $ Left err
-        Right _ -> pure $ Right result
+        Left err -> do
+          logError $ "Report generation failed: " <> T.pack (show err)
+          pure $ Left err
+        Right _ -> do
+          logInfo "Performance report generated successfully"
+          pure $ Right result
 
 -- Obtain default EMA parameters from the registry in a pure way
 getDefaultEmaParams :: StrategyParameters

@@ -14,6 +14,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Aeson as A
 
 import Domain.Services.BacktestService
 import Domain.Types
@@ -26,9 +27,8 @@ import Adapter.ReportGeneratorAdapter
 import Adapter.BacktestEngine
 
 -- Import our new logging and error handling
-import Util.Logger (MonadLogger(..), LogContext(..), ComponentName(..), CorrelationId(..), runFileLoggerWithComponent, emptyLogContext, logInfo, logError, logWarn, logDebug)
+import Util.Logger (MonadLogger(..), LogContext(..), ComponentName(..), CorrelationId(..), runFileLoggerWithComponent, emptyLogContext, logInfo, logError, logWarn, logDebug, logInfoWithContext, logErrorWithContext, logWarnWithContext, logDebugWithContext)
 import Util.Error (TempehError, Result, AppError(..), dataError, strategyError, configError, systemError)
-import qualified Data.Aeson as JSON
 
 -- Enhanced application environment with logging context
 data AppEnv = AppEnv
@@ -62,62 +62,96 @@ runAppMWithLogging component env action = do
 -- DataProvider instance via CsvDataProvider adapter - now with logging
 instance DataProvider AppM where
   loadTicks instr dr = do
-    logInfo $ "Loading ticks for " <> showT instr <> " from " <> showT dr
+    let tickContext = A.object
+          [ "instrument" A..= instr
+          , "dateRange" A..= dr
+          , "dataSource" A..= ("CSV" :: T.Text)
+          ]
+    logInfoWithContext "Loading ticks from data provider" tickContext
     csv <- asks aeCsvProvider
     result <- liftIO $ runReaderT (runCsvDataProvider $ loadTicks instr dr) csv
     case result of
       Left err -> do
-        logError $ "Failed to load ticks: " <> showT err
+        logErrorWithContext "Failed to load ticks"
+          (A.object ["error" A..= show err, "instrument" A..= instr])
         return $ Left err  -- No conversion needed - already TempehError
       Right ticks -> do
-        logInfo $ "Successfully loaded " <> showT (length ticks) <> " ticks"
+        logInfoWithContext "Successfully loaded ticks"
+          (A.object ["tickCount" A..= length ticks, "instrument" A..= instr])
         return $ Right ticks
 
   loadCandles instr dr period = do
-    logInfo $ "Loading candles for " <> showT instr <> " period " <> showT period
+    let candleContext = A.object
+          [ "instrument" A..= instr
+          , "dateRange" A..= dr
+          , "period" A..= show period
+          , "dataSource" A..= ("CSV" :: T.Text)
+          ]
+    logInfoWithContext "Loading candles from data provider" candleContext
     csv <- asks aeCsvProvider
     result <- liftIO $ runReaderT (runCsvDataProvider $ loadCandles instr dr period) csv
     case result of
       Left err -> do
-        logError $ "Failed to load candles: " <> showT err
+        logErrorWithContext "Failed to load candles"
+          (A.object ["error" A..= show err, "instrument" A..= instr, "period" A..= show period])
         return $ Left err  -- No conversion needed - already TempehError
       Right candles -> do
-        logInfo $ "Successfully loaded " <> showT (length candles) <> " candles"
+        logInfoWithContext "Successfully loaded candles"
+          (A.object ["candleCount" A..= length candles, "instrument" A..= instr])
         return $ Right candles
 
   validateDataQuality ticks = do
-    logInfo $ "Validating data quality for " <> showT (length ticks) <> " ticks"
+    let qualityContext = A.object
+          [ "tickCount" A..= length ticks
+          , "validationType" A..= ("quality" :: T.Text)
+          ]
+    logInfoWithContext "Validating data quality" qualityContext
     csv <- asks aeCsvProvider
     result <- liftIO $ runReaderT (runCsvDataProvider $ validateDataQuality ticks) csv
     case result of
       Left err -> do
-        logError $ "Data quality validation failed: " <> showT err
+        logErrorWithContext "Data quality validation failed"
+          (A.object ["error" A..= show err, "tickCount" A..= length ticks])
         return $ Left err  -- No conversion needed - already TempehError
       Right quality -> do
-        logInfo $ "Data quality score: " <> showT (dqrQualityScore quality)
+        logInfoWithContext "Data quality validation complete"
+          (A.object ["qualityScore" A..= dqrQualityScore quality, "tickCount" A..= length ticks])
         return $ Right quality
 
 -- RiskManager instance via BasicRiskManager adapter - now with logging
 instance RiskManager AppM where
   validateRiskLimits rl = do
-    logInfo $ "Validating risk limits: " <> showT rl
+    let riskContext = A.object
+          [ "maxDrawdown" A..= rlMaxDrawdown rl
+          , "maxPositionSize" A..= rlMaxPositionSize rl
+          , "stopLossThreshold" A..= rlStopLossThreshold rl
+          ]
+    logInfoWithContext "Validating risk limits" riskContext
     rm <- asks aeRiskManager
     result <- liftIO $ runReaderT (runBasicRiskManager $ validateRiskLimits rl) rm
     case result of
       Left err -> do
-        logError $ "Risk limit validation failed: " <> showT err
+        logErrorWithContext "Risk limit validation failed"
+          (A.object ["error" A..= show err])
         return $ Left err  -- No conversion needed - already TempehError
       Right () -> do
         logInfo "Risk limits validated successfully"
         return $ Right ()
 
   checkRiskLimits res rl = do
-    logDebug $ "Checking risk limits for backtest result"
+    let checkContext = A.object
+          [ "finalBalance" A..= brFinalBalance res
+          , "pnl" A..= brPnL res
+          , "maxDrawdown" A..= rlMaxDrawdown rl
+          , "totalTrades" A..= brTotalTrades res
+          ]
+    logDebugWithContext "Checking risk limits for backtest result" checkContext
     rm <- asks aeRiskManager
     result <- liftIO $ runReaderT (runBasicRiskManager $ checkRiskLimits res rl) rm
     case result of
       Left err -> do
-        logWarn $ "Risk limits exceeded: " <> showT err
+        logWarnWithContext "Risk limits exceeded"
+          (A.object ["error" A..= show err, "finalBalance" A..= brFinalBalance res])
         return $ Left err  -- No conversion needed - already TempehError
       Right () -> do
         logDebug "Risk limits check passed"
@@ -136,12 +170,19 @@ instance RiskManager AppM where
 -- ReportGenerator instance via ConsoleReportGenerator adapter - now with logging
 instance ReportGenerator AppM where
   generateReport res metrics cfg = do
-    logInfo "Generating performance report"
+    let reportContext = A.object
+          [ "finalBalance" A..= brFinalBalance res
+          , "totalTrades" A..= brTotalTrades res
+          , "winRate" A..= pmWinRate metrics
+          , "profitFactor" A..= pmProfitFactor metrics
+          ]
+    logInfoWithContext "Generating performance report" reportContext
     rg <- asks aeReportGen
     result <- liftIO $ runReaderT (runConsoleReportGenerator $ generateReport res metrics cfg) rg
     case result of
       Left err -> do
-        logError $ "Report generation failed: " <> showT err
+        logErrorWithContext "Report generation failed"
+          (A.object ["error" A..= show err])
         return $ Left err  -- No conversion needed - already TempehError
       Right report -> do
         logInfo "Performance report generated successfully"
@@ -160,14 +201,26 @@ instance ReportGenerator AppM where
 -- BacktestService instance delegates to BacktestEngine - now with logging
 instance BacktestService AppM where
   executeBacktest params initState sigGen candles = do
-    logInfo $ "Executing backtest with " <> showT (length candles) <> " candles"
+    let backtestContext = A.object
+          [ "candleCount" A..= length candles
+          , "initialBalance" A..= bpInitialBalance params
+          , "positionSize" A..= bpPositionSize params
+          , "instrument" A..= bpInstrument params
+          ]
+    logInfoWithContext "Executing backtest" backtestContext
     result <- liftIO $ evalStateT (runBacktestEngine $ executeBacktest params initState sigGen candles) dummyState
     case result of
       Left err -> do
-        logError $ "Backtest execution failed: " <> showT err
+        logErrorWithContext "Backtest execution failed"
+          (A.object ["error" A..= show err, "candleCount" A..= length candles])
         return $ Left err  -- No conversion needed - already TempehError
       Right backtestResult -> do
-        logInfo $ "Backtest completed - Final balance: $" <> showT (brFinalBalance backtestResult)
+        logInfoWithContext "Backtest completed successfully"
+          (A.object
+            [ "finalBalance" A..= brFinalBalance backtestResult
+            , "totalTrades" A..= brTotalTrades backtestResult
+            , "pnl" A..= brPnL backtestResult
+            ])
         return $ Right backtestResult
 
   calculatePerformanceMetrics res initialBalance =

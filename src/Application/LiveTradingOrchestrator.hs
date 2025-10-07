@@ -20,13 +20,14 @@ import Application.Strategy.Registry (StrategyRegistry, createStrategyFromKeywor
 import Adapter.BrokerDataProvider (BrokerDataProviderM, runBrokerDataProviderIO, executeEnterSignal, executeExitSignal)
 import Util.Config (AppConfig(..), loadAppConfig, LiveTradingConfig(..), defaultAppConfig)
 import Util.Error (Result, TempehError(..), strategyError, configError)
-import Util.Logger (MonadLogger, ComponentName(..), logInfo, logError, logWarn)
+import Util.Logger (MonadLogger, ComponentName(..), logInfo, logError, logWarn, logInfoWithContext, logErrorWithContext, logDebugWithContext)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Concurrent.STM (STM, atomically, readTVar)
 import Control.Concurrent (threadDelay)
 import Control.Monad (forever, when, void)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Aeson as A
 import Data.Time (getCurrentTime, diffUTCTime, UTCTime, toGregorian, utctDay, timeToTimeOfDay, TimeOfDay(..), UTCTime(..), fromGregorian, timeOfDayToTime)
 import Data.List (sortBy, groupBy)
 import Data.Ord (comparing)
@@ -50,6 +51,10 @@ data LiveTradingState = LiveTradingState
 -- Live trading orchestrator
 orchestrateLiveTrading :: StrategyRegistry -> LiveTradingConfig' -> IO (Result LiveTradingState)
 orchestrateLiveTrading registry config = do
+  let orchestrationContext = A.object
+        [ "instrument" A..= ltcInstrument config
+        , "strategy" A..= spStrategyType (ltcStrategy config)
+        ]
   putStrLn $ "Starting live trading orchestration for " <> show (ltcInstrument config)
 
   -- Load application configuration
@@ -69,6 +74,10 @@ orchestrateLiveTrading registry config = do
             liftIO $ putStrLn $ "Failed to connect to broker: " <> show brokerErr
             return $ Left brokerErr
           Right connId -> do
+            let connectionContext = A.object
+                  [ "connectionId" A..= show connId
+                  , "instrument" A..= ltcInstrument config
+                  ]
             liftIO $ putStrLn $ "Connected to broker with connection ID: " <> show connId
 
             -- Subscribe to instrument data
@@ -90,6 +99,10 @@ startLiveTradingLoop :: StrategyRegistry
                     -> ConnectionId
                     -> BrokerDataProviderM IO (Result LiveTradingState)
 startLiveTradingLoop registry config connId = do
+  let loopContext = A.object
+        [ "connectionId" A..= show connId
+        , "instrument" A..= ltcInstrument config
+        ]
   liftIO $ putStrLn "Starting live trading loop..."
 
   -- Create strategy instance - extract strategy type from parameters
@@ -100,6 +113,10 @@ startLiveTradingLoop registry config connId = do
       liftIO $ putStrLn $ "Failed to create strategy: unknown strategy type " <> strategyType
       return $ Left $ strategyError ("Unknown strategy type: " <> T.pack strategyType)
     Just strategyInstance -> do
+      let strategyContext = A.object
+            [ "strategyName" A..= siName strategyInstance
+            , "strategyType" A..= T.pack strategyType
+            ]
       liftIO $ putStrLn $ "Strategy created: " <> T.unpack (siName strategyInstance)
 
       -- Initialize live trading state
@@ -132,6 +149,10 @@ runTradingLoop strategyInstance config connId state = do
       statusResult <- getConnectionStatus connId
       case statusResult of
         Left err -> do
+          let errorContext = A.object
+                [ "error" A..= show err
+                , "connectionId" A..= show connId
+                ]
           liftIO $ putStrLn $ "Connection error: " <> show err
           return state { ltsIsRunning = False }
         Right status -> do
@@ -151,6 +172,10 @@ runTradingLoop strategyInstance config connId state = do
               return state { ltsIsRunning = False }
 
             Reconnecting attempt -> do
+              let reconnectContext = A.object
+                    [ "attempt" A..= attempt
+                    , "connectionId" A..= show connId
+                    ]
               liftIO $ putStrLn $ "Reconnecting... attempt " <> show attempt
               liftIO $ threadDelay 1000000  -- 1 second
               runTradingLoop strategyInstance config connId state
@@ -171,6 +196,10 @@ processTicks strategyInstance config connId state = do
   tickStreamResult <- getTickStream connId (ltcInstrument config)
   case tickStreamResult of
     Left err -> do
+      let errorContext = A.object
+            [ "error" A..= show err
+            , "instrument" A..= ltcInstrument config
+            ]
       liftIO $ putStrLn $ "Failed to get tick stream: " <> show err
       return state
     Right tickStream -> do
@@ -180,6 +209,10 @@ processTicks strategyInstance config connId state = do
       if null ticks
         then return state  -- No new ticks
         else do
+          let tickContext = A.object
+                [ "tickCount" A..= length ticks
+                , "instrument" A..= ltcInstrument config
+                ]
           liftIO $ putStrLn $ "Processing " <> show (length ticks) <> " ticks"
 
           -- Convert ticks to candles (1-minute candles for now)
@@ -191,6 +224,10 @@ processTicks strategyInstance config connId state = do
               liftIO $ putStrLn "No complete candles generated from ticks yet"
               return state { ltsSignalCount = ltsSignalCount state + length ticks }
             else do
+              let candleContext = A.object
+                    [ "candleCount" A..= length candles
+                    , "tickCount" A..= length ticks
+                    ]
               liftIO $ putStrLn $ "Generated " <> show (length candles) <> " candles from ticks"
 
               -- Generate trading signal using strategy
@@ -205,14 +242,27 @@ processTicks strategyInstance config connId state = do
                     }
 
                 Enter side -> do
+                  let signalContext = A.object
+                        [ "side" A..= show side
+                        , "instrument" A..= ltcInstrument config
+                        , "positionSize" A..= (0.1 :: Double)
+                        ]
                   liftIO $ putStrLn $ "Strategy signal: ENTER " <> show side
                   -- Execute actual position creation through broker API
                   let positionSize = 0.1  -- Default position size for now
                   executeResult <- executeEnterSignal connId (ltcInstrument config) side positionSize
                   case executeResult of
                     Left tradeErr -> do
+                      let errorContext = A.object
+                            [ "error" A..= show tradeErr
+                            , "side" A..= show side
+                            ]
                       liftIO $ putStrLn $ "Failed to execute ENTER signal: " <> show tradeErr
                     Right dealRef -> do
+                      let successContext = A.object
+                            [ "dealReference" A..= dealRef
+                            , "side" A..= show side
+                            ]
                       liftIO $ putStrLn $ "Successfully executed ENTER signal, deal reference: " <> T.unpack dealRef
                   return state
                     { ltsSignalCount = ltsSignalCount state + length ticks
@@ -220,13 +270,23 @@ processTicks strategyInstance config connId state = do
                     }
 
                 Exit -> do
+                  let signalContext = A.object
+                        [ "signal" A..= ("EXIT" :: T.Text)
+                        , "instrument" A..= ltcInstrument config
+                        ]
                   liftIO $ putStrLn "Strategy signal: EXIT"
                   -- Execute actual position closure through broker API
                   executeResult <- executeExitSignal connId (ltcInstrument config)
                   case executeResult of
                     Left tradeErr -> do
+                      let errorContext = A.object
+                            [ "error" A..= show tradeErr
+                            ]
                       liftIO $ putStrLn $ "Failed to execute EXIT signal: " <> show tradeErr
                     Right dealRef -> do
+                      let successContext = A.object
+                            [ "dealReference" A..= dealRef
+                            ]
                       liftIO $ putStrLn $ "Successfully executed EXIT signal, deal reference: " <> T.unpack dealRef
                   return state
                     { ltsSignalCount = ltsSignalCount state + length ticks
@@ -299,6 +359,10 @@ tickGroupToCandle ticks@(firstTick:_) =
 -- Generate trading signal using strategy instance
 generateSignal :: StrategyInstance -> [Candle] -> IO Signal
 generateSignal strategyInstance candles = do
+  let signalContext = A.object
+        [ "candleCount" A..= length candles
+        , "strategyName" A..= siName strategyInstance
+        ]
   putStrLn $ "Generating signal from " <> show (length candles) <> " candles using " <> T.unpack (siName strategyInstance)
 
   -- Use the strategy's signal generator with current candles and initial state
